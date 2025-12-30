@@ -13,7 +13,7 @@ Python授权客户端，用于检查设备授权状态，支持缓存和AES加�
 ## 安装
 
 ```bash
-pip install py-auth-client --index-url https://www.geekery.cn/pip/simple/
+pip install py-auth-client --extra-index-url https://www.geekery.cn/pip/simple/
 ```
 
 ## 快速开始

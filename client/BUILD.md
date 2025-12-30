@@ -19,13 +19,29 @@ python -m build
 
 ### 目录结构
 
+需要创建以下目录结构：
+
 ```
 www.geekery.cn/pip/
 ├── py_auth_client-0.1.0-py3-none-any.whl
 ├── py_auth_client-0.1.0.tar.gz
-└── simple/  # 可选，用于包索引
+└── simple/
     └── py-auth-client/
-        └── index.html
+        └── index.html  # 包索引文件
+```
+
+**重要**：必须创建 `simple/py-auth-client/` 目录，并在其中创建 `index.html` 文件，内容如下：
+
+```html
+<!DOCTYPE html>
+<html>
+<head><title>Links for py-auth-client</title></head>
+<body>
+<h1>Links for py-auth-client</h1>
+<a href="../../py_auth_client-0.1.0-py3-none-any.whl">py_auth_client-0.1.0-py3-none-any.whl</a><br/>
+<a href="../../py_auth_client-0.1.0.tar.gz">py_auth_client-0.1.0.tar.gz</a><br/>
+</body>
+</html>
 ```
 
 ### 注意事项
@@ -36,10 +52,10 @@ www.geekery.cn/pip/
 ## 从私有仓库安装
 
 ```bash
-# 安装包
-pip install py-auth-client --index-url https://www.geekery.cn/pip/simple/
+# 安装包（会从私有仓库查找包，依赖包从PyPI获取）
+pip install py-auth-client --extra-index-url https://www.geekery.cn/pip/simple/
 
 # 指定版本
-pip install py-auth-client==0.1.0 --index-url https://www.geekery.cn/pip/simple/
+pip install py-auth-client==0.1.0 --extra-index-url https://www.geekery.cn/pip/simple/
 ```
 
