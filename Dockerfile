@@ -21,11 +21,11 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
     && rm -rf /var/lib/apt/lists/*
 
 COPY pyproject.toml ./
+COPY app/ ./app/
+COPY main.py ./
 
 RUN pip install --no-cache-dir --upgrade pip && \
     pip install --no-cache-dir -e .
-
-COPY app/ main.py ./
 
 COPY --from=frontend-builder /app/web/dist ./web/dist
 

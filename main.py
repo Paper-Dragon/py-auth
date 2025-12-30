@@ -30,7 +30,7 @@ try:
         db.close()
 except Exception as e:
     logger.error(f"数据库表创建失败: {str(e)}")
-    logger.warning("请确保MySQL数据库已启动并配置正确")
+    logger.warning("请确保数据库配置正确")
 
 app = FastAPI(
     title="Python授权服务",

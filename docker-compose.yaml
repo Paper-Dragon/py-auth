@@ -1,53 +1,24 @@
 version: '3.8'
 
 services:
-  mysql:
-    image: mysql:8.0
-    container_name: auth-mysql
-    environment:
-      MYSQL_ROOT_PASSWORD: ${MYSQL_ROOT_PASSWORD:-password}
-      MYSQL_DATABASE: ${MYSQL_DATABASE:-auth_db}
-    volumes:
-      - mysql_data:/var/lib/mysql
-    healthcheck:
-      test: ["CMD", "mysqladmin", "ping", "-h", "localhost"]
-      interval: 10s
-      timeout: 5s
-      retries: 5
-    networks:
-      - auth-network
-
   auth-service:
     image: jockerdragon/py-auth-service
     build: .
     container_name: auth-service
-    depends_on:
-      mysql:
-        condition: service_healthy
     environment:
-      MYSQL_HOST: mysql
-      MYSQL_PORT: 3306
-      MYSQL_USER: root
-      MYSQL_PASSWORD: ${MYSQL_ROOT_PASSWORD:-password}
-      MYSQL_DATABASE: ${MYSQL_DATABASE:-auth_db}
-      CLIENT_SECRET: ${CLIENT_SECRET:-your-client-secret-key-change-in-production}
-      SECRET_KEY: ${SECRET_KEY:-your-secret-key-change-in-production-12345678}
-      ACCESS_TOKEN_EXPIRE_MINUTES: ${ACCESS_TOKEN_EXPIRE_MINUTES:-1440}
-      ADMIN_USERNAME: ${ADMIN_USERNAME:-admin}
-      ADMIN_PASSWORD: ${ADMIN_PASSWORD:-admin123}
+      DATABASE_TYPE: sqlite
+      SQLITE_PATH: /app/data/auth.db
+      CLIENT_SECRET: aB3cD5eF7gH9iJ1kL3mN5oP7qR9sT1uV3wX5yZ7aB9cD1eF3gH5iJ7kL9mN1oP3qR5sT7uV9wX1yZ3
+      SECRET_KEY: M2nP4qR6sT8uV0wX2yZ4aB6cD8eF0gH2iJ4kL6mN8oP0qR2sT4uV6wX8yZ0aB2cD4eF6gH8iJ0
+      ACCESS_TOKEN_EXPIRE_MINUTES: 1440
+      ADMIN_USERNAME: admin
+      ADMIN_PASSWORD: xK9mP2qR5tV8wY
     ports:
-      - "${SERVICE_PORT:-8000}:8000"
+      - "8000:8000"
     volumes:
-      - ./app:/app/app
-      - ./main.py:/app/main.py
+      - auth_data:/app/data
     restart: unless-stopped
-    networks:
-      - auth-network
 
 volumes:
-  mysql_data:
-
-networks:
-  auth-network:
-    driver: bridge
+  auth_data:
 
