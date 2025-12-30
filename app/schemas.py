@@ -70,3 +70,8 @@ class TokenResponse(BaseModel):
     username: str
     is_admin: bool
 
+class ChangePasswordRequest(BaseModel):
+    """更改密码请求"""
+    old_password: str
+    new_password: str
+

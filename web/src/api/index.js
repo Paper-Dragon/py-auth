@@ -75,6 +75,16 @@ class ApiService {
     }
   }
 
+  async changePassword(oldPassword, newPassword) {
+    return this.request('/user/change-password', {
+      method: 'POST',
+      body: JSON.stringify({
+        old_password: oldPassword,
+        new_password: newPassword
+      })
+    })
+  }
+
   logout() {
     this.setToken(null)
   }

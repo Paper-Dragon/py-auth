@@ -23,6 +23,15 @@
           </div>
           <el-button 
             type="default" 
+            @click="showChangePasswordDialog = true"
+            class="change-password-button"
+            size="large"
+          >
+            <el-icon><Key /></el-icon>
+            修改密码
+          </el-button>
+          <el-button 
+            type="default" 
             @click="$emit('logout')"
             class="logout-button"
             size="large"
@@ -208,6 +217,59 @@
           </el-descriptions>
           <el-empty v-else description="暂无设备信息" />
         </el-dialog>
+
+        <!-- 修改密码弹窗 -->
+        <el-dialog
+          v-model="showChangePasswordDialog"
+          title="修改密码"
+          width="500px"
+          @close="resetPasswordForm"
+        >
+          <el-form
+            ref="passwordFormRef"
+            :model="passwordForm"
+            :rules="passwordRules"
+            label-width="100px"
+          >
+            <el-form-item label="旧密码" prop="oldPassword">
+              <el-input
+                v-model="passwordForm.oldPassword"
+                type="password"
+                placeholder="请输入旧密码"
+                show-password
+                @keyup.enter="handleChangePassword"
+              />
+            </el-form-item>
+            <el-form-item label="新密码" prop="newPassword">
+              <el-input
+                v-model="passwordForm.newPassword"
+                type="password"
+                placeholder="请输入新密码"
+                show-password
+                @keyup.enter="handleChangePassword"
+              />
+            </el-form-item>
+            <el-form-item label="确认密码" prop="confirmPassword">
+              <el-input
+                v-model="passwordForm.confirmPassword"
+                type="password"
+                placeholder="请再次输入新密码"
+                show-password
+                @keyup.enter="handleChangePassword"
+              />
+            </el-form-item>
+          </el-form>
+          <template #footer>
+            <el-button @click="showChangePasswordDialog = false">取消</el-button>
+            <el-button 
+              type="primary" 
+              @click="handleChangePassword"
+              :loading="changingPassword"
+            >
+              确认修改
+            </el-button>
+          </template>
+        </el-dialog>
       </el-main>
     </el-container>
   </div>
@@ -220,7 +282,8 @@ import {
   Refresh,
   Box,
   CircleCheck,
-  CircleClose
+  CircleClose,
+  Key
 } from '@element-plus/icons-vue'
 import { ElMessage } from 'element-plus'
 import { api } from '../api'
@@ -235,6 +298,14 @@ const devices = ref([])
 const loading = ref(false)
 const deviceInfoModalVisible = ref(false)
 const selectedDevice = ref(null)
+const showChangePasswordDialog = ref(false)
+const changingPassword = ref(false)
+const passwordFormRef = ref(null)
+const passwordForm = ref({
+  oldPassword: '',
+  newPassword: '',
+  confirmPassword: ''
+})
 let refreshTimer = null
 
 const authorizedCount = computed(() => 
@@ -342,6 +413,69 @@ const deleteDevice = async (device) => {
   }
 }
 
+const validateConfirmPassword = (rule, value, callback) => {
+  if (value !== passwordForm.value.newPassword) {
+    callback(new Error('两次输入的密码不一致'))
+  } else {
+    callback()
+  }
+}
+
+const passwordRules = {
+  oldPassword: [
+    { required: true, message: '请输入旧密码', trigger: 'blur' }
+  ],
+  newPassword: [
+    { required: true, message: '请输入新密码', trigger: 'blur' },
+    { min: 6, message: '密码长度至少6位', trigger: 'blur' }
+  ],
+  confirmPassword: [
+    { required: true, message: '请再次输入新密码', trigger: 'blur' },
+    { validator: validateConfirmPassword, trigger: 'blur' }
+  ]
+}
+
+const resetPasswordForm = () => {
+  passwordForm.value = {
+    oldPassword: '',
+    newPassword: '',
+    confirmPassword: ''
+  }
+  if (passwordFormRef.value) {
+    passwordFormRef.value.clearValidate()
+  }
+}
+
+const handleChangePassword = async () => {
+  if (!passwordFormRef.value) return
+  
+  try {
+    await passwordFormRef.value.validate()
+    
+    if (passwordForm.value.oldPassword === passwordForm.value.newPassword) {
+      ElMessage.warning('新密码不能与旧密码相同')
+      return
+    }
+    
+    changingPassword.value = true
+    await api.changePassword(
+      passwordForm.value.oldPassword,
+      passwordForm.value.newPassword
+    )
+    ElMessage.success('密码修改成功')
+    showChangePasswordDialog.value = false
+    resetPasswordForm()
+  } catch (e) {
+    if (e.message.includes('登录已过期')) {
+      emit('logout')
+    } else {
+      ElMessage.error(e.message || '密码修改失败')
+    }
+  } finally {
+    changingPassword.value = false
+  }
+}
+
 onMounted(() => {
   loadDevices()
   refreshTimer = setInterval(() => {
@@ -438,6 +572,20 @@ onUnmounted(() => {
 .username-text {
   font-size: 14px;
   font-weight: 600;
+}
+
+.change-password-button {
+  background: rgba(255, 255, 255, 0.2);
+  border-color: rgba(255, 255, 255, 0.3);
+  color: white;
+  backdrop-filter: blur(10px);
+  margin-right: 8px;
+}
+
+.change-password-button:hover {
+  background: rgba(255, 255, 255, 0.3);
+  border-color: rgba(255, 255, 255, 0.4);
+  color: white;
 }
 
 .logout-button {
