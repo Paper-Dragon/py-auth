@@ -1,0 +1,72 @@
+from pydantic import BaseModel
+from datetime import datetime
+from typing import Optional, Dict, Any
+
+class EncryptedRequest(BaseModel):
+    """加密的请求数据"""
+    encrypted_data: str  # AES加密后的base64字符串
+
+class DeviceAuthRequest(BaseModel):
+    """设备授权请求（检查/注册共用）"""
+    device_id: str
+    software_name: Optional[str] = None  # 软件名
+    device_info: Optional[Dict[str, Any]] = None  # 设备信息（JSON格式，包含hostname等）
+
+# 向后兼容：保留 DeviceCreate 作为别名
+DeviceCreate = DeviceAuthRequest
+
+class DeviceResponse(BaseModel):
+    id: int
+    device_id: str
+    software_name: Optional[str]  # 软件名
+    device_info: Optional[Dict[str, Any]]  # 设备信息（JSON格式，包含hostname等）
+    remark: Optional[str]
+    is_authorized: bool
+    created_at: datetime
+    updated_at: Optional[datetime]
+    last_check: Optional[datetime]
+    
+    class Config:
+        from_attributes = True
+
+class DeviceUpdate(BaseModel):
+    software_name: Optional[str] = None  # 软件名
+    remark: Optional[str] = None
+    is_authorized: Optional[bool] = None
+
+# 向后兼容：保留 AuthCheckRequest 作为别名
+AuthCheckRequest = DeviceAuthRequest
+
+class AuthCheckResponse(BaseModel):
+    authorized: bool
+    message: str
+
+class EncryptedResponse(BaseModel):
+    """加密的响应数据"""
+    encrypted_data: str  # AES加密后的base64字符串
+
+# 用户相关
+class UserCreate(BaseModel):
+    username: str
+    password: str
+
+class UserLogin(BaseModel):
+    username: str
+    password: str
+
+class UserResponse(BaseModel):
+    id: int
+    username: str
+    is_active: bool
+    is_admin: bool
+    created_at: datetime
+    
+    class Config:
+        from_attributes = True
+
+class TokenResponse(BaseModel):
+    access_token: str
+    token_type: str = "bearer"
+    username: str
+    is_admin: bool
+

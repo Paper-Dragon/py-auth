@@ -1,0 +1,39 @@
+[build-system]
+requires = ["setuptools>=65", "wheel"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "py-auth-client"
+version = "0.1.0"
+description = "Python授权客户端，用于检查设备授权状态，支持缓存和AES加密"
+readme = "README.md"
+requires-python = ">=3.8"
+authors = [{name = "py-auth"}]
+keywords = ["auth", "authorization", "client", "device", "license"]
+classifiers = [
+    "Development Status :: 4 - Beta",
+    "Intended Audience :: Developers",
+    "Programming Language :: Python :: 3",
+    "Programming Language :: Python :: 3.8",
+    "Programming Language :: Python :: 3.9",
+    "Programming Language :: Python :: 3.10",
+    "Programming Language :: Python :: 3.11",
+    "Programming Language :: Python :: 3.12",
+]
+dependencies = [
+    "requests>=2.31.0",
+    "psutil>=5.9.0",
+    "cryptography>=41.0.0",
+]
+
+[project.urls]
+Homepage = "https://github.com/Paper-Dragon/py-auth"
+Documentation = "https://github.com/Paper-Dragon/py-auth"
+Repository = "https://github.com/Paper-Dragon/py-auth"
+
+[tool.setuptools]
+packages = ["py_auth_client"]
+
+[tool.setuptools.package-data]
+"*" = ["*.txt", "*.md"]
+

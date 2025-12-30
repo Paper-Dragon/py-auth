@@ -1,0 +1,102 @@
+const API_BASE = '/api'
+
+class ApiService {
+  constructor() {
+    this.token = localStorage.getItem('authToken')
+  }
+
+  setToken(token) {
+    this.token = token
+    if (token) {
+      localStorage.setItem('authToken', token)
+    } else {
+      localStorage.removeItem('authToken')
+    }
+  }
+
+  getToken() {
+    return this.token
+  }
+
+  async request(endpoint, options = {}) {
+    const url = `${API_BASE}${endpoint}`
+    const headers = {
+      'Content-Type': 'application/json',
+      ...options.headers
+    }
+
+    if (this.token) {
+      headers['Authorization'] = `Bearer ${this.token}`
+    }
+
+    const response = await fetch(url, {
+      ...options,
+      headers
+    })
+
+    if (response.status === 401) {
+      this.setToken(null)
+      throw new Error('登录已过期，请重新登录')
+    }
+
+    if (!response.ok) {
+      let errorMessage = `HTTP ${response.status}`
+      try {
+        const errorData = await response.json()
+        errorMessage = errorData.detail || errorData.message || errorMessage
+      } catch (e) {
+        // ignore
+      }
+      throw new Error(errorMessage)
+    }
+
+    if (response.status === 204) {
+      return null
+    }
+    return response.json()
+  }
+
+  // 用户认证
+  async login(username, password) {
+    const data = await this.request('/user/login', {
+      method: 'POST',
+      body: JSON.stringify({ username, password })
+    })
+    this.setToken(data.access_token)
+    return data
+  }
+
+  async verifyToken() {
+    try {
+      await this.request('/user/verify')
+      return true
+    } catch (e) {
+      return false
+    }
+  }
+
+  logout() {
+    this.setToken(null)
+  }
+
+  // 设备管理
+  async getDevices() {
+    return this.request('/admin/devices')
+  }
+
+  async updateDevice(deviceId, data) {
+    return this.request(`/admin/devices/${encodeURIComponent(deviceId)}`, {
+      method: 'PUT',
+      body: JSON.stringify(data)
+    })
+  }
+
+  async deleteDevice(deviceId) {
+    return this.request(`/admin/devices/${encodeURIComponent(deviceId)}`, {
+      method: 'DELETE'
+    })
+  }
+}
+
+export const api = new ApiService()
+
