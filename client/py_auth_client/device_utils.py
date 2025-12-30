@@ -5,7 +5,7 @@ import os
 import socket
 import uuid
 from pathlib import Path
-from typing import Dict, Optional, Tuple
+from typing import Dict, Optional
 
 import platform
 import psutil
@@ -146,7 +146,7 @@ def build_device_info(facts: Dict[str, Optional[str]], device_info_override: Opt
     if device_info_override is not None:
         return device_info_override
 
-    info: Dict[str, Any] = {
+    info: Dict[str] = {
         "hostname": facts.get("hostname_value"),
         "system": facts.get("system"),
         "release": facts.get("release"),

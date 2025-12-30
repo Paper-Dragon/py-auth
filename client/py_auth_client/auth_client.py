@@ -6,17 +6,16 @@ Python授权客户端模块
 - 缓存有效期：7天
 - 始终向服务端发送请求并更新本地缓存
 - 如果在线验证失败但缓存仍在有效期内，使用缓存结果作为后备
-- 使用HMAC-SHA256签名防止缓存被伪造（签名密钥基于设备ID和服务器URL生成）
 - 缓存文件经过混淆加密，隐藏在系统目录中
 
 网络传输：
 - 使用AES加密保护请求和响应数据
 """
 import requests
+import logging
 import platform
 import socket
 import hashlib
-import hmac
 import uuid
 import json
 import os
@@ -28,6 +27,7 @@ from typing import Optional, Dict, Any
 from pathlib import Path
 import psutil
 from cryptography.fernet import Fernet
+import logging
 
 from .device_utils import (
     build_device_id,
@@ -36,7 +36,7 @@ from .device_utils import (
 )
 
 class AuthCache:
-    """授权缓存管理（带HMAC签名验证和混淆加密）"""
+    """授权缓存管理（混淆加密）"""
     
     def __init__(
         self, 
@@ -51,8 +51,8 @@ class AuthCache:
         
         Args:
             cache_dir: 缓存目录，默认使用系统隐藏目录
-            device_id: 设备ID，用于生成缓存文件名和签名密钥
-            server_url: 服务器URL，用于生成签名密钥
+            device_id: 设备ID，用于生成缓存文件名和加密密钥
+            server_url: 服务器URL，用于生成加密密钥
             cache_validity_days: 缓存有效期（天），默认7天
             check_interval_days: 检查间隔（天），默认2天
         """
@@ -69,7 +69,7 @@ class AuthCache:
             home = Path.home()
             windows_base = Path(os.environ.get('LOCALAPPDATA', home / 'AppData' / 'Local'))
             self.cache_dir = {
-                'Windows': windows_base / f"Microsoft/CLR_v4.0",
+                'Windows': windows_base / "Microsoft/CLR_v4.0",
                 'Darwin': Path(f"{home}/Library/Caches/.com.apple.metadata"),
             }.get(system, Path(f"{home}/.cache/.fontconfig"))
         
@@ -78,15 +78,13 @@ class AuthCache:
         # 生成看起来像系统文件的文件名
         file_hash = hashlib.md5(device_id.encode()).hexdigest()[:12]
         cache_filename = f"runtime_{file_hash}.dat"
+        self.cache_filename = cache_filename
         self.cache_file = self.cache_dir / cache_filename
-        
-        # 生成签名密钥
-        key_material = f"{device_id}:{server_url}:auth_cache_v2"
-        self.signature_key = hashlib.sha256(key_material.encode()).digest()
         
         # 生成加密密钥（基于设备ID和服务器URL）
         encrypt_material = f"{server_url}:{device_id}:obfuscate_v1"
         self.encrypt_key = hashlib.sha256(encrypt_material.encode()).digest()
+        self.logger = logging.getLogger("py_auth_client")
     
     def _obfuscate(self, data: bytes) -> bytes:
         """
@@ -135,7 +133,9 @@ class AuthCache:
             
             # 尝试多个可能的time_seed（允许小时偏差）
             current_hour = int(time.time()) // 3600
-            for hour_offset in [0, -1, 1, -2, 2]:
+            # 允许更宽的偏移（覆盖完整缓存有效期），避免超过2小时后无法解密
+            max_offset = max(2, self.cache_validity_days * 24 + 12)  # 7天≈168小时
+            for hour_offset in range(-max_offset, max_offset + 1):
                 time_seed = current_hour + hour_offset
                 prefix_seed = hashlib.md5(f"{self.device_id}:{time_seed}".encode()).digest()[:4]
                 
@@ -168,92 +168,64 @@ class AuthCache:
             
             return None
         except Exception:
+            try:
+                self.logger.debug("缓存解密失败")
+            except Exception:
+                pass
             return None
-    
-    def _generate_signature(self, data: Dict[str, Any]) -> str:
-        """
-        生成缓存的HMAC签名
-        
-        Args:
-            data: 要签名的数据字典
-            
-        Returns:
-            HMAC签名字符串（十六进制）
-        """
-        sign_data = {
-            'a': data.get('a'),  # authorized
-            'm': data.get('m'),  # message
-            'c': data.get('c'),  # cached_at
-            'l': data.get('l')   # last_check
-        }
-        sign_string = json.dumps(sign_data, sort_keys=True, ensure_ascii=False)
-        signature = hmac.new(
-            self.signature_key,
-            sign_string.encode('utf-8'),
-            hashlib.sha256
-        ).hexdigest()
-        
-        return signature
-    
-    def _verify_signature(self, data: Dict[str, Any]) -> bool:
-        """
-        验证缓存的HMAC签名
-        
-        Args:
-            data: 包含签名的数据字典
-            
-        Returns:
-            签名是否有效
-        """
-        stored_signature = data.get('s')  # signature
-        if not stored_signature:
-            return False
-        
-        expected_signature = self._generate_signature(data)
-        return hmac.compare_digest(stored_signature, expected_signature)
     
     def get_cache(self) -> Optional[Dict[str, Any]]:
         """
-        获取并验证缓存数据
+        获取缓存数据
         
         Returns:
-            缓存数据或None（如果缓存不存在、无法读取或签名无效）
+            缓存数据或None（如果缓存不存在或无法读取）
         """
         try:
             if not self.cache_file.exists():
                 return None
             
-            # 读取二进制数据
             with open(self.cache_file, 'rb') as f:
                 encrypted_data = f.read()
             
-            # 解密
+            try:
+                self.logger.debug(f"缓存文件: {self.cache_file} 大小: {len(encrypted_data)} bytes")
+            except Exception:
+                pass
+            
             decrypted = self._deobfuscate(encrypted_data)
             if not decrypted:
+                try:
+                    self.logger.debug("缓存解密结果为空")
+                except Exception:
+                    pass
                 return None
             
-            # 解析JSON
             cache_data = json.loads(decrypted.decode('utf-8'))
             
-            # 验证签名
-            if 's' in cache_data:
-                if not self._verify_signature(cache_data):
-                    return None
-            
-            # 转换回标准格式
             return {
                 'authorized': cache_data.get('a'),
                 'message': cache_data.get('m'),
                 'cached_at': cache_data.get('c'),
-                'last_check': cache_data.get('l'),
-                'signature': cache_data.get('s')
+                'last_check': cache_data.get('l')
             }
-        except Exception:
+        except Exception as e:
+            try:
+                self.logger.debug(f"读取缓存异常: {e}")
+            except Exception:
+                pass
             return None
     
-    def save_cache(self, authorized: bool, message: str) -> bool:
+    def save_cache(
+        self, 
+        authorized: bool, 
+        message: str,
+        *,
+        cached_at: Optional[float] = None,
+        last_check: Optional[float] = None
+    ) -> bool:
         """
-        保存缓存数据（带HMAC签名和混淆加密）
+        保存缓存数据（混淆加密）
         
         Args:
             authorized: 授权状态
@@ -263,28 +235,52 @@ class AuthCache:
             是否保存成功
         """
         try:
+            now = time.time()
+            cached_ts = cached_at if cached_at is not None else now
+            last_check_ts = last_check if last_check is not None else now
+            
             # 使用简短的键名减少特征
             cache_data = {
                 'a': authorized,      # authorized
                 'm': message,         # message
-                'c': time.time(),     # cached_at
-                'l': time.time(),     # last_check
+                'c': cached_ts,       # cached_at
+                'l': last_check_ts,   # last_check
                 # 添加一些干扰数据
                 'v': 2,               # version (干扰)
                 'f': hashlib.md5(str(time.time()).encode()).hexdigest()[:8]  # 干扰
             }
             
-            cache_data['s'] = self._generate_signature(cache_data)  # signature
-            
-            # 序列化
             json_data = json.dumps(cache_data, ensure_ascii=False, separators=(',', ':'))
             
-            # 加密混淆
             encrypted = self._obfuscate(json_data.encode('utf-8'))
             
-            # 写入二进制文件
-            with open(self.cache_file, 'wb') as f:
-                f.write(encrypted)
+            self.cache_dir.mkdir(parents=True, exist_ok=True)
+            
+            try:
+                with open(self.cache_file, 'wb') as f:
+                    f.write(encrypted)
+            except (PermissionError, OSError) as e:
+                try:
+                    self.logger.debug(f"写入缓存失败，尝试删除后重新创建: {e}")
+                    if self.cache_file.exists():
+                        # 尝试移除只读属性（Windows）
+                        if platform.system() == 'Windows':
+                            try:
+                                import ctypes
+                                ctypes.windll.kernel32.SetFileAttributesW(str(self.cache_file), 0x80)  # NORMAL
+                            except:
+                                pass
+                        self.cache_file.unlink()
+                        self.logger.debug("已删除旧缓存文件")
+                    with open(self.cache_file, 'wb') as f:
+                        f.write(encrypted)
+                    self.logger.debug("重新创建缓存文件成功")
+                except Exception as retry_e:
+                    try:
+                        self.logger.debug(f"删除并重新创建缓存文件失败: {retry_e}")
+                    except Exception:
+                        pass
+                    raise e
             
             # 尝试隐藏文件（Windows）
             if platform.system() == 'Windows':
@@ -295,12 +291,16 @@ class AuthCache:
                     pass
             
             return True
-        except Exception:
+        except Exception as e:
+            try:
+                self.logger.debug(f"保存缓存失败: {e}")
+            except Exception:
+                pass
             return False
     
     def update_last_check(self) -> bool:
         """
-        更新最后检查时间（并重新签名）
+        更新最后检查时间
         
         Returns:
             是否更新成功
@@ -308,7 +308,12 @@ class AuthCache:
         try:
             cache = self.get_cache()
             if cache:
-                return self.save_cache(cache['authorized'], cache['message'])
+                return self.save_cache(
+                    cache.get('authorized', False),
+                    cache.get('message', ''),
+                    cached_at=cache.get('cached_at', time.time()),
+                    last_check=time.time()
+                )
             return False
         except Exception:
             return False
@@ -392,7 +397,8 @@ class AuthClient:
         cache_dir: Optional[str] = None,
         enable_cache: bool = True,
         cache_validity_days: int = 7,
-        check_interval_days: int = 2
+        check_interval_days: int = 2,
+        debug: bool = False
     ):
         """
         初始化授权客户端
@@ -407,7 +413,19 @@ class AuthClient:
             enable_cache: 是否启用缓存，默认True
             cache_validity_days: 缓存有效期（天），默认7天
             check_interval_days: 检查间隔（天），默认2天
+            debug: 是否输出调试日志
         """
+        self.debug = debug
+        self.logger = logging.getLogger("py_auth_client")
+        if debug:
+            if not self.logger.handlers:
+                handler = logging.StreamHandler()
+                formatter = logging.Formatter("[py-auth-client][%(levelname)s] %(message)s")
+                handler.setFormatter(formatter)
+                self.logger.addHandler(handler)
+            self.logger.setLevel(logging.DEBUG)
+            self.logger.propagate = False
+        
         self.server_url = server_url.rstrip('/')
         system = platform.system()
         facts = collect_device_facts()
@@ -436,7 +454,6 @@ class AuthClient:
                 "或设置环境变量CLIENT_SECRET。这是安全要求，必须配置。"
             )
         
-        # 生成AES加密密钥（基于client_secret）
         self._init_encryption_key()
         
         self.enable_cache = enable_cache
@@ -450,6 +467,50 @@ class AuthClient:
             )
         else:
             self.cache = None
+    
+    def _log_debug(self, message: str):
+        if self.debug:
+            try:
+                self.logger.debug(message)
+            except Exception:
+                pass
+    
+    def _format_remaining_time(self, cached_at: float) -> str:
+        """
+        格式化剩余时间（从缓存时间开始计算）
+        
+        Args:
+            cached_at: 缓存时间戳
+            
+        Returns:
+            格式化的剩余时间字符串，如 "5天12小时30分钟"
+        """
+        if not cached_at or cached_at <= 0:
+            return "未知"
+        
+        if not self.cache:
+            return "未知"
+        
+        now = time.time()
+        elapsed = now - cached_at
+        remaining = self.cache.cache_validity_seconds - elapsed
+        
+        if remaining <= 0:
+            return "已过期"
+        
+        days = int(remaining // 86400)
+        hours = int((remaining % 86400) // 3600)
+        minutes = int((remaining % 3600) // 60)
+        
+        parts = []
+        if days > 0:
+            parts.append(f"{days}天")
+        if hours > 0:
+            parts.append(f"{hours}小时")
+        if minutes > 0 or not parts:
+            parts.append(f"{minutes}分钟")
+        
+        return "".join(parts) if parts else "0分钟"
     
     def _get_mac_address(self) -> Optional[str]:
         """获取主网卡MAC地址"""
@@ -487,6 +548,7 @@ class AuthClient:
     def _check_online(self) -> Dict[str, Any]:
         """在线检查授权状态（使用AES加密）"""
         try:
+            self._log_debug("开始在线订阅请求...")
             request_data = {
                 "device_id": self.device_id,
                 "software_name": self.software_name,
@@ -502,15 +564,18 @@ class AuthClient:
             if response.status_code == 200:
                 decrypted = self._decrypt_data(response.json().get("encrypted_data", ""))
                 if decrypted:
+                    self._log_debug(f"在线订阅成功，authorized={decrypted.get('authorized')}")
                     return {
                         'authorized': decrypted.get('authorized', False),
                         'message': decrypted.get('message', ''),
                         'success': True,
                         'from_cache': False
                     }
+                self._log_debug("在线订阅响应解密失败")
                 return {'authorized': False, 'message': '解密响应失败', 'success': False, 'from_cache': False}
             
             error_msg = response.json().get('detail', f'服务器错误: {response.status_code}') if response.status_code == 403 else f'服务器错误: {response.status_code}'
+            self._log_debug(f"在线订阅失败，status={response.status_code}, message={error_msg}")
             return {
                 'authorized': False,
                 'message': error_msg,
@@ -519,8 +584,10 @@ class AuthClient:
                 'is_auth_error': response.status_code == 403
             }
         except requests.exceptions.RequestException as e:
+            self._log_debug(f"在线订阅请求异常: {str(e)}")
             return {'authorized': False, 'message': f'连接失败: {str(e)}', 'success': False, 'from_cache': False}
         except Exception as e:
+            self._log_debug(f"在线订阅未知异常: {str(e)}")
             return {'authorized': False, 'message': f'未知错误: {str(e)}', 'success': False, 'from_cache': False}
     
     def check_authorization(self, force_online: bool = False) -> Dict[str, Any]:
@@ -528,10 +595,9 @@ class AuthClient:
         检查设备授权状态（带缓存）
         
         缓存策略：
-        - 始终向服务端发送请求并更新本地缓存
-        - 如果在线验证成功，更新缓存并返回最新结果
-        - 如果在线验证失败但缓存仍在有效期内（7天），使用缓存作为后备
-        - 如果在线验证失败且缓存无效，返回失败结果
+        - 优先检查本地缓存，缓存有效（7天内）则直接返回授权结果并刷新last_check
+        - 缓存失效时才向服务端发起订阅请求，成功则更新缓存
+        - 订阅（在线）失败不修改/清空缓存，直接返回失败结果
         
         Args:
             force_online: 强制在线检查（已弃用，始终在线检查）
@@ -547,24 +613,79 @@ class AuthClient:
         if not self.enable_cache or self.cache is None:
             return self._check_online()
         
-        cache_valid = self.cache.is_cache_valid()
+        cache_data = None
+        try:
+            self._log_debug(f"尝试读取缓存: {self.cache.cache_file}")
+            self._log_debug(f"缓存文件存在: {self.cache.cache_file.exists()}")
+            cache_data = self.cache.get_cache()
+        except Exception:
+            self._log_debug("读取缓存异常")
+            cache_data = None
+        
+        # 若标准读取失败，尝试宽松解密一次（可能存在旧格式或偏移）
+        if cache_data is None and self.cache.cache_file.exists():
+            try:
+                self._log_debug("尝试宽松解密缓存（直接读原始文件）")
+                with open(self.cache.cache_file, 'rb') as f:
+                    encrypted_data = f.read()
+                decrypted = self.cache._deobfuscate(encrypted_data)
+                if decrypted:
+                    raw = json.loads(decrypted.decode('utf-8'))
+                    cache_data = {
+                        'authorized': raw.get('a', False),
+                        'message': raw.get('m', ''),
+                        'cached_at': raw.get('c', 0),
+                        'last_check': raw.get('l', 0),
+                    }
+                else:
+                    self._log_debug("宽松解密失败（结果为空）")
+            except Exception as e:
+                self._log_debug(f"宽松解密异常: {e}")
+        
+        # 缓存有效时，先返回缓存结果，然后继续尝试在线订阅来更新订阅
+        cache_valid = False
+        if cache_data:
+            cached_at = cache_data.get('cached_at', 0)
+            if cached_at > 0:
+                elapsed = time.time() - cached_at
+                if elapsed < self.cache.cache_validity_seconds:
+                    cache_valid = True
+                    self._log_debug("命中有效缓存，直接授权通过")
+        
+        
+        if cache_valid:
+            self._log_debug("缓存有效，继续尝试在线订阅来更新订阅")
+        else:
+            if cache_data:
+                self._log_debug("缓存存在但已过期，准备发起在线订阅请求")
+            else:
+                self._log_debug("未找到缓存，准备发起在线订阅请求")
+        
         online_result = self._check_online()
         
         if online_result['success']:
-            self.cache.save_cache(online_result['authorized'], online_result['message'])
+            self._log_debug("在线订阅成功，更新缓存")
+            saved = self.cache.save_cache(online_result['authorized'], online_result['message'])
+            self._log_debug(f"写入缓存结果: {saved} -> {self.cache.cache_file}")
             return online_result
         
-        if cache_valid and not online_result.get('is_auth_error', False):
-            cached_result = self.cache.get_cached_result()
-            if cached_result:
-                self.cache.update_last_check()
-                return {
-                    'authorized': cached_result['authorized'],
-                    'message': f"{cached_result['message']} (离线缓存，{online_result['message']})",
-                    'success': True,
-                    'from_cache': True
-                }
+        if cache_valid:
+            cached_at = cache_data.get('cached_at', 0)
+            remaining = self._format_remaining_time(cached_at)
+            self._log_debug(f"在线订阅失败，但缓存有效，使用缓存结果: {online_result.get('message')}，订阅剩余时间: {remaining}")
+            return {
+                'authorized': cache_data.get('authorized', False),
+                'message': cache_data.get('message', ''),
+                'success': True,
+                'from_cache': True
+            }
         
+        if cache_data:
+            cached_at = cache_data.get('cached_at', 0)
+            remaining = self._format_remaining_time(cached_at)
+            self._log_debug(f"在线订阅失败，缓存已过期，返回失败结果: {online_result.get('message')}，订阅剩余时间: {remaining}")
+        else:
+            self._log_debug(f"在线订阅失败，返回失败结果: {online_result.get('message')}")
         return online_result
     
     def require_authorization(self, raise_exception: bool = True, force_online: bool = False) -> bool:
@@ -615,6 +736,40 @@ class AuthClient:
         if self.cache:
             return self.cache.clear_cache()
         return True
+    
+    def get_authorization_info(self) -> Dict[str, Any]:
+        """
+        获取授权信息（用户友好的格式）
+        
+        Returns:
+            授权信息字典，包含授权状态、剩余时间、缓存信息等
+        """
+        result = self.check_authorization()
+        
+        info = {
+            'authorized': result.get('authorized', False),
+            'success': result.get('success', False),
+            'from_cache': result.get('from_cache', False),
+            'message': result.get('message', ''),
+            'device_id': self.device_id,
+            'server_url': self.server_url,
+        }
+        
+        if self.cache:
+            cache = self.cache.get_cache()
+            if cache:
+                cached_at = cache.get('cached_at', 0)
+                remaining = self._format_remaining_time(cached_at)
+                info['remaining_time'] = remaining
+                info['cache_valid'] = self.cache.is_cache_valid()
+                info['cached_at'] = cached_at
+                if cached_at > 0:
+                    info['cached_at_readable'] = time.strftime('%Y-%m-%d %H:%M:%S', time.localtime(cached_at))
+            else:
+                info['remaining_time'] = '无缓存'
+                info['cache_valid'] = False
+        
+        return info
     
     def get_cache_info(self) -> Optional[Dict[str, Any]]:
         """

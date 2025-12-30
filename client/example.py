@@ -12,7 +12,8 @@ from py_auth_client import AuthClient, AuthorizationError
 client = AuthClient(
     server_url="http://localhost:8000",
     software_name="我的软件",
-    client_secret="your-client-secret-key-change-in-production"
+    client_secret="your-client-secret-key-change-in-production",
+    # debug=True  # 开启调试日志，便于排查网络/缓存状态
 )
 
 # 检查授权
@@ -23,4 +24,5 @@ except AuthorizationError as e:
     print(f"❌ 授权失败: {e}")
     exit(1)
 
+print(client.get_authorization_info())
 # 你的软件代码...
