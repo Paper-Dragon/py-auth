@@ -2,7 +2,7 @@
 
 本文档记录项目的所有重要变更。
 
-## [2.0.0] - 2024-12-29
+## [0.1.2] - 2025-01-05
 
 ### 🔥 重大变更 (Breaking Changes)
 
@@ -45,14 +45,14 @@
 所有使用 `AuthClient` 的代码需要更新，`software_name` 现在是必填的第二个参数：
 
 ```python
-# 2.0.0 之前（software_name 是可选的第三个参数）
+# 0.1.2 之前（software_name 是可选的第三个参数）
 client = AuthClient(
     server_url="http://localhost:8000",
     device_id="xxx",  # 可选
     software_name="我的软件"  # 可选
 )
 
-# 2.0.0 及之后（software_name 是必填的第二个参数）
+# 0.1.2 及之后（software_name 是必填的第二个参数）
 client = AuthClient(
     server_url="http://localhost:8000",
     software_name="我的软件",  # 必填，第二个参数
@@ -72,12 +72,28 @@ client = AuthClient(
 
 ---
 
-## [1.0.0] - 初始版本
+## [0.1.1] - 2025-12-30
 
-### ✨ 功能
+### 🔄 改进
 
-- 基本的设备授权管理
-- JWT 用户认证
-- AES 加密的客户端通信
-- 本地缓存机制
-- Web 管理界面
+- ✅ 添加 GitHub Actions 构建工作流
+- ✅ 优化构建包配置
+
+---
+
+## [0.1.0] - 2025-12-30
+
+### ✨ 新增功能
+
+- ✅ **远端 API 和缓存功能实现**：完善了客户端与服务端的交互逻辑
+- ✅ 优化了授权客户端代码结构
+- ✅ 改进了设备工具函数
+
+### 🔄 改进
+
+- ✅ 重构了 `auth_client.py`，提升了代码可维护性
+- ✅ 优化了 `device_utils.py` 的设备信息收集逻辑
+- ✅ 更新了客户端使用示例
+
+---
+

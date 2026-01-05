@@ -5,6 +5,8 @@ on:
     branches:
       - main
       - master
+    tags:
+      - 'v*.*.*'  # 匹配版本 tag，如 v0.1.2
     paths:
       - 'client/**'
       - '.github/workflows/build-client.yml'
@@ -15,14 +17,100 @@ on:
     paths:
       - 'client/**'
   workflow_dispatch:
+    inputs:
+      version:
+        description: '版本号（可选，如 0.1.2）'
+        required: false
+        type: string
 
 jobs:
   build:
     runs-on: ubuntu-latest
     
     steps:
-      - name: 检出代码
+      - name: 检出代码（包含 tag 信息）
         uses: actions/checkout@v4
+        with:
+          fetch-depth: 0  # 获取完整历史，包括 tag 信息
+      
+      - name: 提取版本信息
+        id: version
+        run: |
+          if [[ "${{ github.ref_type }}" == "tag" ]]; then
+            # 从 tag 中提取版本号（移除 refs/tags/ 前缀，然后移除 v 前缀）
+            VERSION="${GITHUB_REF#refs/tags/}"
+            # 如果版本号以 v 开头，移除 v 前缀
+            if [[ "$VERSION" =~ ^v ]]; then
+              VERSION="${VERSION#v}"
+            fi
+            echo "🏷️  从 tag 提取的版本: $VERSION (原始: ${{ github.ref }})"
+          elif [[ -n "${{ inputs.version }}" ]]; then
+            # 手动触发时使用输入的版本号
+            VERSION="${{ inputs.version }}"
+            # 如果版本号以 v 开头，移除 v 前缀
+            if [[ "$VERSION" =~ ^v ]]; then
+              VERSION="${VERSION#v}"
+            fi
+            echo "✋ 使用手动输入的版本: $VERSION"
+          else
+            # 从 pyproject.toml 中提取版本号
+            VERSION=$(grep -E '^version = ' client/pyproject.toml | sed -E "s/version = ['\"](.*)['\"]/\1/" | xargs)
+            echo "📄 从 pyproject.toml 提取的版本: $VERSION"
+          fi
+          
+          # 去除所有空白字符和换行符
+          VERSION=$(echo -n "$VERSION" | tr -d '[:space:]')
+          
+          # 再次确保移除可能的 v 前缀
+          VERSION="${VERSION#v}"
+          
+          # 验证版本号格式（语义化版本号：x.y.z）
+          if [[ ! "$VERSION" =~ ^[0-9]+\.[0-9]+\.[0-9]+$ ]]; then
+            echo "❌ 错误: 无效的版本号格式: $VERSION"
+            echo "   版本号必须是语义化版本格式，如: 0.1.2"
+            exit 1
+          fi
+          
+          # 使用多行输出格式避免换行符问题
+          {
+            echo "version<<EOF"
+            echo -n "$VERSION"
+            echo ""
+            echo "EOF"
+          } >> $GITHUB_OUTPUT
+          echo "✅ 构建版本: $VERSION"
+      
+      - name: 验证版本一致性
+        working-directory: ./client
+        run: |
+          # 从 pyproject.toml 读取版本（去除前后空白）
+          PYPROJECT_VERSION=$(grep -E '^version = ' pyproject.toml | sed -E "s/version = ['\"](.*)['\"]/\1/" | xargs)
+          WORKFLOW_VERSION="${{ steps.version.outputs.version }}"
+          
+          # 去除空白字符
+          PYPROJECT_VERSION=$(echo "$PYPROJECT_VERSION" | tr -d '[:space:]')
+          WORKFLOW_VERSION=$(echo "$WORKFLOW_VERSION" | tr -d '[:space:]')
+          
+          # 确保移除 v 前缀（如果存在）
+          PYPROJECT_VERSION="${PYPROJECT_VERSION#v}"
+          WORKFLOW_VERSION="${WORKFLOW_VERSION#v}"
+          
+          echo "pyproject.toml 版本: [$PYPROJECT_VERSION] (长度: ${#PYPROJECT_VERSION})"
+          echo "Workflow 版本: [$WORKFLOW_VERSION] (长度: ${#WORKFLOW_VERSION})"
+          
+          if [[ "${{ github.ref_type }}" == "tag" ]]; then
+            # Tag 触发时，必须与 pyproject.toml 中的版本一致
+            if [[ "$PYPROJECT_VERSION" != "$WORKFLOW_VERSION" ]]; then
+              echo "❌ 错误: tag 版本 ($WORKFLOW_VERSION) 与 pyproject.toml 版本 ($PYPROJECT_VERSION) 不一致！"
+              echo "调试信息:"
+              echo "  PYPROJECT_VERSION hex: $(echo -n "$PYPROJECT_VERSION" | xxd -p)"
+              echo "  WORKFLOW_VERSION hex: $(echo -n "$WORKFLOW_VERSION" | xxd -p)"
+              exit 1
+            fi
+            echo "✅ 版本验证通过: $WORKFLOW_VERSION"
+          else
+            echo "ℹ️  非 tag 触发，使用 pyproject.toml 版本: $PYPROJECT_VERSION"
+          fi
       
       - name: 设置 Python
         uses: actions/setup-python@v5
@@ -38,22 +126,71 @@ jobs:
       - name: 构建 client 包
         working-directory: ./client
         run: |
+          echo "开始构建版本 ${{ steps.version.outputs.version }}..."
           python -m build
+          echo "✅ 构建完成"
       
       - name: 显示构建产物
         working-directory: ./client
         run: |
-          echo "构建完成！构建产物："
+          echo "📦 构建产物："
           ls -lh dist/
           echo ""
-          echo "文件列表："
-          find dist -type f
+          echo "📋 文件列表："
+          find dist -type f -exec ls -lh {} \;
+          echo ""
+          echo "📊 文件大小统计："
+          du -sh dist/*
       
-      - name: 上传构建产物
+      - name: 验证构建产物
+        working-directory: ./client
+        run: |
+          # 检查是否生成了 wheel 和 source distribution
+          if [ ! -f "dist/py_auth_client-${{ steps.version.outputs.version }}-py3-none-any.whl" ]; then
+            echo "❌ 错误: 未找到 wheel 文件"
+            exit 1
+          fi
+          
+          if [ ! -f "dist/py_auth_client-${{ steps.version.outputs.version }}.tar.gz" ]; then
+            echo "❌ 错误: 未找到 source distribution 文件"
+            exit 1
+          fi
+          
+          echo "✅ 构建产物验证通过"
+      
+      - name: 上传构建产物（Artifact）
         uses: actions/upload-artifact@v4
         with:
-          name: py-auth-client-package
+          name: py-auth-client-${{ steps.version.outputs.version }}
           path: client/dist/*
           retention-days: 30
           if-no-files-found: error
+      
+      - name: 创建 GitHub Release（仅 tag 触发）
+        if: github.ref_type == 'tag'
+        uses: softprops/action-gh-release@v1
+        with:
+          files: client/dist/*
+          name: Release v${{ steps.version.outputs.version }}
+          body: |
+            ## py-auth-client v${{ steps.version.outputs.version }}
+            
+            ### 📦 构建产物
+            
+            - `py_auth_client-${{ steps.version.outputs.version }}-py3-none-any.whl` - Wheel 包
+            - `py_auth_client-${{ steps.version.outputs.version }}.tar.gz` - 源码包
+            
+            ### 📥 安装
+            
+            ```bash
+            pip install py-auth-client==${{ steps.version.outputs.version }}
+            ```
+            
+            ### 📚 查看变更
+            
+            请查看 [CHANGELOG.md](../../CHANGELOG.md) 了解详细变更。
+          draft: false
+          prerelease: false
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
 

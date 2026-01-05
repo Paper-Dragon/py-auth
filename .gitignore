@@ -45,6 +45,5 @@ htmlcov/
 .pytest_cache/
 
 # 构建
-dist/
 build/
 *.egg-info/
