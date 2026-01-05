@@ -43,6 +43,7 @@ class AuthCache:
         cache_dir: Optional[str] = None, 
         device_id: str = "",
         server_url: str = "",
+        software_name: str = "",
         cache_validity_days: int = 7,
         check_interval_days: int = 2
     ):
@@ -53,6 +54,7 @@ class AuthCache:
             cache_dir: 缓存目录，默认使用系统隐藏目录
             device_id: 设备ID，用于生成缓存文件名和加密密钥
             server_url: 服务器URL，用于生成加密密钥
+            software_name: 软件名称（必填），用于区分不同软件的缓存
             cache_validity_days: 缓存有效期（天），默认7天
             check_interval_days: 检查间隔（天），默认2天
         """
@@ -61,6 +63,7 @@ class AuthCache:
         self.check_interval_days = check_interval_days
         self.check_interval_seconds = check_interval_days * 24 * 60 * 60
         self.device_id = device_id
+        self.software_name = software_name
         
         if cache_dir:
             self.cache_dir = Path(cache_dir)
@@ -75,14 +78,15 @@ class AuthCache:
         
         self.cache_dir.mkdir(parents=True, exist_ok=True)
         
-        # 生成看起来像系统文件的文件名
-        file_hash = hashlib.md5(device_id.encode()).hexdigest()[:12]
+        # 生成看起来像系统文件的文件名（基于 device_id + software_name，确保不同软件使用不同缓存）
+        cache_key = f"{device_id}:{self.software_name}"
+        file_hash = hashlib.md5(cache_key.encode()).hexdigest()[:12]
         cache_filename = f"runtime_{file_hash}.dat"
         self.cache_filename = cache_filename
         self.cache_file = self.cache_dir / cache_filename
         
-        # 生成加密密钥（基于设备ID和服务器URL）
-        encrypt_material = f"{server_url}:{device_id}:obfuscate_v1"
+        # 生成加密密钥（基于设备ID、软件名称和服务器URL）
+        encrypt_material = f"{server_url}:{device_id}:{self.software_name}:obfuscate_v1"
         self.encrypt_key = hashlib.sha256(encrypt_material.encode()).digest()
         self.logger = logging.getLogger("py_auth_client")
     
@@ -106,7 +110,7 @@ class AuthCache:
         
         # 3. 添加随机前缀（基于时间的伪随机，但可重复）
         time_seed = int(time.time()) // 3600  # 每小时变化
-        prefix_seed = hashlib.md5(f"{self.device_id}:{time_seed}".encode()).digest()[:4]
+        prefix_seed = hashlib.md5(f"{self.device_id}:{self.software_name}:{time_seed}".encode()).digest()[:4]
         
         # 4. 打包：前缀(4) + 长度(4) + 数据
         packed = prefix_seed + struct.pack('>I', len(xored)) + xored
@@ -137,7 +141,7 @@ class AuthCache:
             max_offset = max(2, self.cache_validity_days * 24 + 12)  # 7天≈168小时
             for hour_offset in range(-max_offset, max_offset + 1):
                 time_seed = current_hour + hour_offset
-                prefix_seed = hashlib.md5(f"{self.device_id}:{time_seed}".encode()).digest()[:4]
+                prefix_seed = hashlib.md5(f"{self.device_id}:{self.software_name}:{time_seed}".encode()).digest()[:4]
                 
                 # 1. 解除最外层XOR
                 final_key = hashlib.sha256(self.encrypt_key + prefix_seed).digest()
@@ -390,8 +394,8 @@ class AuthClient:
     def __init__(
         self, 
         server_url: str, 
+        software_name: str,
         device_id: Optional[str] = None, 
-        software_name: Optional[str] = None,
         device_info: Optional[Dict[str, Any]] = None,
         client_secret: Optional[str] = None,
         cache_dir: Optional[str] = None,
@@ -405,8 +409,8 @@ class AuthClient:
         
         Args:
             server_url: 授权服务器地址，例如: http://localhost:8000
+            software_name: 软件名称（必填）
             device_id: 设备ID，如果不提供则自动生成
-            software_name: 软件名称（可选）
             device_info: 设备附加信息（可选），如果不提供则自动收集系统信息
             client_secret: 客户端密钥（用于AES加密），如果不提供则从环境变量CLIENT_SECRET读取
             cache_dir: 缓存目录（可选）
@@ -431,9 +435,10 @@ class AuthClient:
         facts = collect_device_facts()
         mac_value = facts.get("mac")
         
-        self.device_id = build_device_id(self.server_url, device_id, facts)
-        
         self.software_name = software_name
+        
+        # 生成 device_id 时包含 software_name，确保同一设备上的不同软件有不同的 device_id
+        self.device_id = build_device_id(self.server_url, device_id, facts, software_name)
         
         try:
             self.hostname = socket.gethostname()
@@ -462,6 +467,7 @@ class AuthClient:
                 cache_dir, 
                 self.device_id,
                 self.server_url,
+                self.software_name,
                 cache_validity_days=cache_validity_days,
                 check_interval_days=check_interval_days
             )
@@ -892,8 +898,8 @@ class AuthorizationError(Exception):
 
 def check_authorization(
     server_url: str, 
+    software_name: str,
     device_id: Optional[str] = None, 
-    software_name: Optional[str] = None,
     enable_cache: bool = True,
     force_online: bool = False
 ) -> bool:
@@ -902,14 +908,14 @@ def check_authorization(
     
     Args:
         server_url: 授权服务器地址
+        software_name: 软件名称（必填）
         device_id: 设备ID（可选）
-        software_name: 软件名称（可选）
         enable_cache: 是否启用缓存
         force_online: 强制在线检查
         
     Returns:
         bool: 是否已授权
     """
-    client = AuthClient(server_url, device_id, software_name, enable_cache=enable_cache)
+    client = AuthClient(server_url, software_name, device_id, enable_cache=enable_cache)
     result = client.check_authorization(force_online=force_online)
     return result.get('authorized', False) and result.get('success', False)
