@@ -16,36 +16,30 @@ import (
 
 // DeviceFacts 设备硬件信息
 type DeviceFacts struct {
-	System        string
-	Release       string
-	Version       string
-	Machine       string
-	Processor     string
-	Hostname      string
-	MAC           string
-	IPAddress     string
-	CPUCount      int
-	CPUFreqMHz    float64
-	MemoryTotalGB float64
-	DiskTotalGB   float64
-	DiskID        string
+	System    string
+	Release   string
+	Version   string
+	Machine   string
+	Processor string
+	Hostname  string
+	MAC       string
+	IPAddress string
+	CPUCount  int
+	DiskID    string
 }
 
 // DeviceInfo 设备信息（发送给服务器）
 type DeviceInfo struct {
-	Hostname      string  `json:"hostname,omitempty"`
-	System        string  `json:"system,omitempty"`
-	Release       string  `json:"release,omitempty"`
-	Version       string  `json:"version,omitempty"`
-	Machine       string  `json:"machine,omitempty"`
-	Processor     string  `json:"processor,omitempty"`
-	MACAddress    string  `json:"mac_address,omitempty"`
-	IPAddress     string  `json:"ip_address,omitempty"`
-	CPUCount      int     `json:"cpu_count,omitempty"`
-	CPUFreqMHz    float64 `json:"cpu_freq_mhz,omitempty"`
-	MemoryTotalGB float64 `json:"memory_total_gb,omitempty"`
-	DiskTotalGB   float64 `json:"disk_total_gb,omitempty"`
-	Username      string  `json:"username,omitempty"`
+	Hostname   string `json:"hostname,omitempty"`
+	System     string `json:"system,omitempty"`
+	Release    string `json:"release,omitempty"`
+	Version    string `json:"version,omitempty"`
+	Machine    string `json:"machine,omitempty"`
+	Processor  string `json:"processor,omitempty"`
+	MACAddress string `json:"mac_address,omitempty"`
+	IPAddress  string `json:"ip_address,omitempty"`
+	CPUCount   int    `json:"cpu_count,omitempty"`
+	Username   string `json:"username,omitempty"`
 }
 
 // deviceIDStorePath 设备ID持久化路径
@@ -152,7 +146,13 @@ func CollectDeviceFacts() DeviceFacts {
 
 	// 硬件信息
 	facts.CPUCount = runtime.NumCPU()
-	facts.CPUFreqMHz, facts.MemoryTotalGB, facts.DiskTotalGB, facts.DiskID = getHardwareInfo()
+
+	// 磁盘ID（简化：仅使用基本路径）
+	if runtime.GOOS == "windows" {
+		facts.DiskID = "C:"
+	} else {
+		facts.DiskID = "/"
+	}
 
 	return facts
 }
@@ -174,8 +174,6 @@ func BuildDeviceID(serverURL string, providedDeviceID string, facts DeviceFacts,
 		facts.MAC,
 		facts.DiskID,
 		fmt.Sprintf("%d", facts.CPUCount),
-		fmt.Sprintf("%.2f", facts.MemoryTotalGB),
-		fmt.Sprintf("%.2f", facts.DiskTotalGB),
 		facts.System,
 		facts.Machine,
 		softwareName,
@@ -183,7 +181,7 @@ func BuildDeviceID(serverURL string, providedDeviceID string, facts DeviceFacts,
 
 	var filtered []string
 	for _, c := range components {
-		if c != "" && c != "0" && c != "0.00" {
+		if c != "" && c != "0" {
 			filtered = append(filtered, c)
 		}
 	}
@@ -224,15 +222,6 @@ func BuildDeviceInfo(facts DeviceFacts, override *DeviceInfo) DeviceInfo {
 	}
 	if facts.CPUCount > 0 {
 		info.CPUCount = facts.CPUCount
-	}
-	if facts.CPUFreqMHz > 0 {
-		info.CPUFreqMHz = facts.CPUFreqMHz
-	}
-	if facts.MemoryTotalGB > 0 {
-		info.MemoryTotalGB = facts.MemoryTotalGB
-	}
-	if facts.DiskTotalGB > 0 {
-		info.DiskTotalGB = facts.DiskTotalGB
 	}
 
 	// 获取用户名
@@ -305,22 +294,4 @@ func getIPAddress() string {
 		}
 	}
 	return ""
-}
-
-func getHardwareInfo() (cpuFreq float64, memoryGB float64, diskGB float64, diskID string) {
-	// CPU频率（简化实现，实际获取可能需要系统特定调用）
-	cpuFreq = 0
-
-	// 内存（简化实现）
-	memoryGB = 0
-
-	// 磁盘（简化实现）
-	diskGB = 0
-	if runtime.GOOS == "windows" {
-		diskID = "C:"
-	} else {
-		diskID = "/"
-	}
-
-	return
 }

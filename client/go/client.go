@@ -1,15 +1,15 @@
 package authclient
 
 import (
-	"bytes"
 	"encoding/json"
 	"errors"
 	"fmt"
-	"io"
 	"net/http"
 	"os"
 	"strings"
 	"time"
+
+	"github.com/go-resty/resty/v2"
 )
 
 // AuthResult 授权检查结果
@@ -22,16 +22,16 @@ type AuthResult struct {
 
 // AuthorizationInfo 授权信息
 type AuthorizationInfo struct {
-	Authorized      bool    `json:"authorized"`
-	Success         bool    `json:"success"`
-	FromCache       bool    `json:"from_cache"`
-	Message         string  `json:"message"`
-	DeviceID        string  `json:"device_id"`
-	ServerURL       string  `json:"server_url"`
-	RemainingTime   string  `json:"remaining_time,omitempty"`
-	CacheValid      bool    `json:"cache_valid,omitempty"`
-	CachedAt        float64 `json:"cached_at,omitempty"`
-	CachedAtReadable string `json:"cached_at_readable,omitempty"`
+	Authorized       bool    `json:"authorized"`
+	Success          bool    `json:"success"`
+	FromCache        bool    `json:"from_cache"`
+	Message          string  `json:"message"`
+	DeviceID         string  `json:"device_id"`
+	ServerURL        string  `json:"server_url"`
+	RemainingTime    string  `json:"remaining_time,omitempty"`
+	CacheValid       bool    `json:"cache_valid,omitempty"`
+	CachedAt         float64 `json:"cached_at,omitempty"`
+	CachedAtReadable string  `json:"cached_at_readable,omitempty"`
 }
 
 // AuthorizationError 授权错误
@@ -80,30 +80,30 @@ func (e *AuthorizationError) IsValidationError() bool {
 
 // AuthClient 授权客户端
 type AuthClient struct {
-	serverURL          string
-	softwareName       string
-	deviceID           string
-	deviceInfo         DeviceInfo
-	clientSecret       string
-	cache              *AuthCache
-	enableCache        bool
-	cacheValidityDays  int
-	checkIntervalDays  int
-	debug              bool
+	serverURL         string
+	softwareName      string
+	deviceID          string
+	deviceInfo        DeviceInfo
+	clientSecret      string
+	cache             *AuthCache
+	enableCache       bool
+	cacheValidityDays int
+	checkIntervalDays int
+	debug             bool
 }
 
 // AuthClientConfig 客户端配置
 type AuthClientConfig struct {
-	ServerURL          string
-	SoftwareName       string
-	DeviceID           string
-	DeviceInfo         *DeviceInfo
-	ClientSecret       string
-	CacheDir           string
-	EnableCache        bool
-	CacheValidityDays  int
-	CheckIntervalDays  int
-	Debug              bool
+	ServerURL         string
+	SoftwareName      string
+	DeviceID          string
+	DeviceInfo        *DeviceInfo
+	ClientSecret      string
+	CacheDir          string
+	EnableCache       bool
+	CacheValidityDays int
+	CheckIntervalDays int
+	Debug             bool
 }
 
 // NewAuthClient 创建新的授权客户端
@@ -121,7 +121,7 @@ func NewAuthClient(config AuthClientConfig) (*AuthClient, error) {
 			return nil, errors.New("client_secret未配置！请在初始化时传入client_secret参数，或设置环境变量CLIENT_SECRET")
 		}
 	}
-	
+
 	client := &AuthClient{
 		serverURL:         config.ServerURL,
 		softwareName:      config.SoftwareName,
@@ -131,17 +131,17 @@ func NewAuthClient(config AuthClientConfig) (*AuthClient, error) {
 		checkIntervalDays: config.CheckIntervalDays,
 		debug:             config.Debug,
 	}
-	
+
 	if client.cacheValidityDays == 0 {
 		client.cacheValidityDays = 7
 	}
 	if client.checkIntervalDays == 0 {
 		client.checkIntervalDays = 2
 	}
-	
+
 	// 收集设备信息
 	facts := CollectDeviceFacts()
-	
+
 	// 构建设备ID
 	var err error
 	client.deviceID, err = BuildDeviceID(
@@ -153,10 +153,10 @@ func NewAuthClient(config AuthClientConfig) (*AuthClient, error) {
 	if err != nil {
 		return nil, fmt.Errorf("构建设备ID失败: %w", err)
 	}
-	
+
 	// 构建设备信息
 	client.deviceInfo = BuildDeviceInfo(facts, config.DeviceInfo)
-	
+
 	// 初始化缓存
 	if client.enableCache {
 		client.cache = NewAuthCache(
@@ -168,149 +168,95 @@ func NewAuthClient(config AuthClientConfig) (*AuthClient, error) {
 			client.checkIntervalDays,
 		)
 	}
-	
+
 	return client, nil
+}
+
+// errorResult 创建错误结果辅助函数
+func (c *AuthClient) errorResult(msg string) *AuthResult {
+	return &AuthResult{
+		Authorized: false,
+		Message:    msg,
+		Success:    false,
+		FromCache:  false,
+	}
 }
 
 // checkOnline 在线检查授权状态
 func (c *AuthClient) checkOnline() *AuthResult {
 	c.logDebug("开始在线订阅请求...")
-	
+
+	// 准备请求数据
 	requestData := map[string]interface{}{
 		"device_id":     c.deviceID,
 		"software_name": c.softwareName,
 		"device_info":   c.deviceInfo,
 	}
-	
+
 	jsonData, err := json.Marshal(requestData)
 	if err != nil {
-		return &AuthResult{
-			Authorized: false,
-			Message:    fmt.Sprintf("序列化请求失败: %v", err),
-			Success:    false,
-			FromCache:  false,
-		}
+		return c.errorResult(fmt.Sprintf("序列化请求失败: %v", err))
 	}
-	
+
 	encrypted, err := EncryptData(jsonData, c.clientSecret)
 	if err != nil {
-		return &AuthResult{
-			Authorized: false,
-			Message:    fmt.Sprintf("加密请求失败: %v", err),
-			Success:    false,
-			FromCache:  false,
-		}
+		return c.errorResult(fmt.Sprintf("加密请求失败: %v", err))
 	}
-	
-	requestBody := map[string]string{
-		"encrypted_data": encrypted,
-	}
-	requestJSON, _ := json.Marshal(requestBody)
-	
-	url := fmt.Sprintf("%s/api/auth/heartbeat", c.serverURL)
-	req, err := http.NewRequest("POST", url, bytes.NewBuffer(requestJSON))
-	if err != nil {
-		return &AuthResult{
-			Authorized: false,
-			Message:    fmt.Sprintf("创建请求失败: %v", err),
-			Success:    false,
-			FromCache:  false,
-		}
-	}
-	
-	req.Header.Set("Content-Type", "application/json")
-	client := &http.Client{Timeout: 10 * time.Second}
-	
-	resp, err := client.Do(req)
+
+	// 使用resty发送HTTP请求
+	client := resty.New().SetTimeout(10 * time.Second)
+	resp, err := client.R().
+		SetHeader("Content-Type", "application/json").
+		SetBody(map[string]string{"encrypted_data": encrypted}).
+		SetResult(map[string]interface{}{}).
+		Post(fmt.Sprintf("%s/api/auth/heartbeat", c.serverURL))
+
 	if err != nil {
 		c.logDebug(fmt.Sprintf("在线订阅请求异常: %v", err))
-		return &AuthResult{
-			Authorized: false,
-			Message:    fmt.Sprintf("连接失败: %v", err),
-			Success:    false,
-			FromCache:  false,
-		}
+		return c.errorResult(fmt.Sprintf("连接失败: %v", err))
 	}
-	defer resp.Body.Close()
-	
-	body, err := io.ReadAll(resp.Body)
+
+	if resp.StatusCode() != http.StatusOK {
+		var errorResp map[string]interface{}
+		errorMsg := fmt.Sprintf("服务器错误: %d", resp.StatusCode())
+		if err := json.Unmarshal(resp.Body(), &errorResp); err == nil {
+			if detail, ok := errorResp["detail"].(string); ok {
+				errorMsg = detail
+			}
+		}
+		c.logDebug(fmt.Sprintf("在线订阅失败，status=%d, message=%s", resp.StatusCode(), errorMsg))
+		return c.errorResult(errorMsg)
+	}
+
+	var response map[string]interface{}
+	if err := json.Unmarshal(resp.Body(), &response); err != nil {
+		return c.errorResult("解析响应失败")
+	}
+
+	encryptedData, ok := response["encrypted_data"].(string)
+	if !ok {
+		return c.errorResult("响应格式错误")
+	}
+
+	decrypted, err := DecryptData(encryptedData, c.clientSecret)
 	if err != nil {
-		return &AuthResult{
-			Authorized: false,
-			Message:    fmt.Sprintf("读取响应失败: %v", err),
-			Success:    false,
-			FromCache:  false,
-		}
+		c.logDebug("在线订阅响应解密失败")
+		return c.errorResult("解密响应失败")
 	}
-	
-	if resp.StatusCode == 200 {
-		var response map[string]interface{}
-		if err := json.Unmarshal(body, &response); err != nil {
-			return &AuthResult{
-				Authorized: false,
-				Message:    "解析响应失败",
-				Success:    false,
-				FromCache:  false,
-			}
-		}
-		
-		encryptedData, ok := response["encrypted_data"].(string)
-		if !ok {
-			return &AuthResult{
-				Authorized: false,
-				Message:    "响应格式错误",
-				Success:    false,
-				FromCache:  false,
-			}
-		}
-		
-		decrypted, err := DecryptData(encryptedData, c.clientSecret)
-		if err != nil {
-			c.logDebug("在线订阅响应解密失败")
-			return &AuthResult{
-				Authorized: false,
-				Message:    "解密响应失败",
-				Success:    false,
-				FromCache:  false,
-			}
-		}
-		
-		var result map[string]interface{}
-		if err := json.Unmarshal(decrypted, &result); err != nil {
-			return &AuthResult{
-				Authorized: false,
-				Message:    "解析解密数据失败",
-				Success:    false,
-				FromCache:  false,
-			}
-		}
-		
-		authorized, _ := result["authorized"].(bool)
-		message, _ := result["message"].(string)
-		
-		c.logDebug(fmt.Sprintf("在线订阅成功，authorized=%v", authorized))
-		return &AuthResult{
-			Authorized: authorized,
-			Message:    message,
-			Success:    true,
-			FromCache:  false,
-		}
+
+	var result map[string]interface{}
+	if err := json.Unmarshal(decrypted, &result); err != nil {
+		return c.errorResult("解析解密数据失败")
 	}
-	
-	// 错误响应
-	var errorResp map[string]interface{}
-	errorMsg := fmt.Sprintf("服务器错误: %d", resp.StatusCode)
-	if err := json.Unmarshal(body, &errorResp); err == nil {
-		if detail, ok := errorResp["detail"].(string); ok {
-			errorMsg = detail
-		}
-	}
-	
-	c.logDebug(fmt.Sprintf("在线订阅失败，status=%d, message=%s", resp.StatusCode, errorMsg))
+
+	authorized, _ := result["authorized"].(bool)
+	message, _ := result["message"].(string)
+
+	c.logDebug(fmt.Sprintf("在线订阅成功，authorized=%v", authorized))
 	return &AuthResult{
-		Authorized: false,
-		Message:    errorMsg,
-		Success:    false,
+		Authorized: authorized,
+		Message:    message,
+		Success:    true,
 		FromCache:  false,
 	}
 }
@@ -320,7 +266,7 @@ func (c *AuthClient) CheckAuthorization() *AuthResult {
 	if !c.enableCache || c.cache == nil {
 		return c.checkOnline()
 	}
-	
+
 	// 尝试读取缓存
 	cacheData, err := c.cache.GetCache()
 	cacheValid := false
@@ -331,7 +277,7 @@ func (c *AuthClient) CheckAuthorization() *AuthResult {
 			c.logDebug("命中有效缓存，直接授权通过")
 		}
 	}
-	
+
 	if cacheValid {
 		c.logDebug("缓存有效，继续尝试在线订阅来更新订阅")
 	} else {
@@ -341,16 +287,16 @@ func (c *AuthClient) CheckAuthorization() *AuthResult {
 			c.logDebug("未找到缓存，准备发起在线订阅请求")
 		}
 	}
-	
+
 	// 始终尝试在线检查
 	onlineResult := c.checkOnline()
-	
+
 	if onlineResult.Success {
 		c.logDebug("在线订阅成功，更新缓存")
 		c.cache.SaveCache(onlineResult.Authorized, onlineResult.Message)
 		return onlineResult
 	}
-	
+
 	// 在线检查失败，如果缓存有效则使用缓存
 	if cacheValid {
 		remaining := c.formatRemainingTime(cacheData.CachedAt)
@@ -362,7 +308,7 @@ func (c *AuthClient) CheckAuthorization() *AuthResult {
 			FromCache:  true,
 		}
 	}
-	
+
 	// 返回失败结果
 	if cacheData != nil {
 		remaining := c.formatRemainingTime(cacheData.CachedAt)
@@ -376,7 +322,7 @@ func (c *AuthClient) CheckAuthorization() *AuthResult {
 // RequireAuthorization 要求授权，如果未授权则返回错误
 func (c *AuthClient) RequireAuthorization() error {
 	result := c.CheckAuthorization()
-	
+
 	if !result.Success {
 		return &AuthorizationError{
 			Message:   result.Message,
@@ -385,7 +331,7 @@ func (c *AuthClient) RequireAuthorization() error {
 			ServerURL: c.serverURL,
 		}
 	}
-	
+
 	if !result.Authorized {
 		return &AuthorizationError{
 			Message:   result.Message,
@@ -394,7 +340,7 @@ func (c *AuthClient) RequireAuthorization() error {
 			ServerURL: c.serverURL,
 		}
 	}
-	
+
 	return nil
 }
 
@@ -409,7 +355,7 @@ func (c *AuthClient) ClearCache() error {
 // GetAuthorizationInfo 获取授权信息
 func (c *AuthClient) GetAuthorizationInfo() *AuthorizationInfo {
 	result := c.CheckAuthorization()
-	
+
 	info := &AuthorizationInfo{
 		Authorized: result.Authorized,
 		Success:    result.Success,
@@ -418,7 +364,7 @@ func (c *AuthClient) GetAuthorizationInfo() *AuthorizationInfo {
 		DeviceID:   c.deviceID,
 		ServerURL:  c.serverURL,
 	}
-	
+
 	if c.cache != nil {
 		cache, err := c.cache.GetCache()
 		if err == nil && cache != nil {
@@ -433,7 +379,7 @@ func (c *AuthClient) GetAuthorizationInfo() *AuthorizationInfo {
 			info.CacheValid = false
 		}
 	}
-	
+
 	return info
 }
 
@@ -448,19 +394,19 @@ func (c *AuthClient) formatRemainingTime(cachedAt float64) string {
 	if cachedAt <= 0 || c.cache == nil {
 		return "未知"
 	}
-	
+
 	now := float64(time.Now().Unix())
 	elapsed := now - cachedAt
 	remaining := float64(c.cache.cacheValiditySeconds) - elapsed
-	
+
 	if remaining <= 0 {
 		return "已过期"
 	}
-	
+
 	days := int(remaining / 86400)
 	hours := int((remaining - float64(days*86400)) / 3600)
 	minutes := int((remaining - float64(days*86400) - float64(hours*3600)) / 60)
-	
+
 	var parts []string
 	if days > 0 {
 		parts = append(parts, fmt.Sprintf("%d天", days))
@@ -471,16 +417,14 @@ func (c *AuthClient) formatRemainingTime(cachedAt float64) string {
 	if minutes > 0 || len(parts) == 0 {
 		parts = append(parts, fmt.Sprintf("%d分钟", minutes))
 	}
-	
+
 	if len(parts) == 0 {
 		return "0分钟"
 	}
-	
+
 	result := ""
 	for _, part := range parts {
 		result += part
 	}
 	return result
 }
-
-
