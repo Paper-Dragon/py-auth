@@ -90,6 +90,9 @@
           <el-table-column prop="created_at" label="创建时间" width="160">
             <template #default="{ row }">{{ formatDate(row.created_at) }}</template>
           </el-table-column>
+          <el-table-column prop="updated_at" label="更新时间" width="160">
+            <template #default="{ row }">{{ formatDate(row.updated_at) }}</template>
+          </el-table-column>
           <el-table-column label="操作" width="160" fixed="right" align="center">
             <template #default="{ row }">
               <el-button v-if="row.is_authorized" type="warning" size="small" @click="toggleAuth(row, false)" :loading="row._updating">取消</el-button>
@@ -128,6 +131,10 @@
                 <div class="info-row">
                   <span class="label">创建：</span>
                   <span class="value">{{ formatDate(device.created_at) }}</span>
+                </div>
+                <div class="info-row" v-if="device.updated_at">
+                  <span class="label">更新：</span>
+                  <span class="value">{{ formatDate(device.updated_at) }}</span>
                 </div>
                 <div class="info-row" v-if="device.device_info">
                   <el-button type="primary" link size="small" @click="showDeviceInfo(device)">查看设备详情</el-button>
