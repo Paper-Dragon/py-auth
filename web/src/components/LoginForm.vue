@@ -113,32 +113,35 @@ const rules = {
 const handleLogin = async () => {
   if (!formRef.value) return
   
-  await formRef.value.validate(async (valid) => {
+  try {
+    // 先验证表单
+    const valid = await formRef.value.validate().catch(() => false)
     if (!valid) return
     
     loading.value = true
     error.value = ''
 
-    try {
-      const data = await api.login(formData.value.username, formData.value.password)
-      ElMessage.success('登录成功')
-      emit('login-success', data)
-    } catch (e) {
-      error.value = e.message || '登录失败，请检查用户名和密码'
-    } finally {
-      loading.value = false
-    }
-  })
+    const data = await api.login(formData.value.username, formData.value.password)
+    ElMessage.success('登录成功')
+    emit('login-success', data)
+  } catch (e) {
+    error.value = e.message || '登录失败，请检查用户名和密码'
+  } finally {
+    loading.value = false
+  }
 }
 </script>
 
 <style scoped>
 .login-container {
   min-height: 100vh;
+  min-height: -webkit-fill-available;
   display: flex;
   justify-content: center;
   align-items: center;
   padding: 20px;
+  padding-top: max(20px, env(safe-area-inset-top));
+  padding-bottom: max(20px, env(safe-area-inset-bottom));
   position: relative;
   overflow: hidden;
   background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
@@ -315,6 +318,8 @@ const handleLogin = async () => {
   box-shadow: 0 4px 15px rgba(102, 126, 234, 0.4);
   transition: all 0.3s;
   margin-top: 10px;
+  touch-action: manipulation;
+  -webkit-tap-highlight-color: transparent;
 }
 
 .login-button:hover {
@@ -324,6 +329,7 @@ const handleLogin = async () => {
 
 .login-button:active {
   transform: translateY(0);
+  box-shadow: 0 2px 10px rgba(102, 126, 234, 0.3);
 }
 
 .error-message {
@@ -349,20 +355,84 @@ const handleLogin = async () => {
 }
 
 @media (max-width: 768px) {
+  .login-container {
+    padding: 16px;
+  }
+  
   .login-card-wrapper {
     max-width: 100%;
   }
   
   .login-form {
-    padding: 30px 24px 40px;
+    padding: 24px 20px 32px;
   }
   
   .error-message {
-    margin: 0 24px 30px;
+    margin: 0 20px 24px;
   }
   
   .login-title {
-    font-size: 24px;
+    font-size: 22px;
+  }
+  
+  .login-subtitle {
+    font-size: 13px;
+  }
+  
+  .login-header {
+    padding: 32px 0 24px;
+  }
+  
+  .logo-icon {
+    width: 56px;
+    height: 56px;
+    margin: 0 auto 16px;
+  }
+  
+  .gradient-orb {
+    filter: blur(60px);
+  }
+  
+  .orb-1 {
+    width: 300px;
+    height: 300px;
+  }
+  
+  .orb-2 {
+    width: 250px;
+    height: 250px;
+  }
+  
+  .orb-3 {
+    width: 280px;
+    height: 280px;
+  }
+}
+
+@media (max-width: 480px) {
+  .login-container {
+    padding: 12px;
+  }
+  
+  .login-form {
+    padding: 20px 16px 28px;
+  }
+  
+  .login-title {
+    font-size: 20px;
+  }
+  
+  .login-header {
+    padding: 28px 0 20px;
+  }
+  
+  .logo-icon {
+    width: 48px;
+    height: 48px;
+  }
+  
+  .form-item-custom :deep(.el-form-item__label) {
+    font-size: 13px;
   }
 }
 </style>

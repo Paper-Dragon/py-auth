@@ -5,6 +5,14 @@
   </div>
 </template>
 
+<style scoped>
+.app {
+  min-height: 100vh;
+  width: 100%;
+  overflow-x: hidden;
+}
+</style>
+
 <script setup>
 import { ref, onMounted } from 'vue'
 import LoginForm from './components/LoginForm.vue'

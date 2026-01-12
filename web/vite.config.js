@@ -10,10 +10,17 @@ export default defineConfig({
     emptyOutDir: true
   },
   server: {
+    port: 3000,
     proxy: {
       '/api': {
-        target: 'http://localhost:8000',
-        changeOrigin: true
+        target: 'http://127.0.0.1:8000',
+        changeOrigin: true,
+        secure: false,
+        configure: (proxy, options) => {
+          proxy.on('proxyReq', (proxyReq, req, res) => {
+            console.log('[Proxy]', req.method, req.url, '->', options.target + req.url)
+          })
+        }
       }
     }
   }

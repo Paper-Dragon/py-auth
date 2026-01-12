@@ -58,6 +58,9 @@ class ApiService {
 
   // 用户认证
   async login(username, password) {
+    // 登录前清除旧 token，避免发送无效 token 导致 401
+    this.setToken(null)
+    
     const data = await this.request('/user/login', {
       method: 'POST',
       body: JSON.stringify({ username, password })

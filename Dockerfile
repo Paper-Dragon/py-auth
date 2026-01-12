@@ -1,6 +1,8 @@
-FROM node:20-alpine AS frontend-builder
+FROM node:22-alpine AS frontend-builder
 
 WORKDIR /app/web
+
+ENV CI=true
 
 RUN npm install -g pnpm
 
@@ -10,7 +12,7 @@ RUN pnpm install --frozen-lockfile || pnpm install
 
 RUN pnpm run build
 
-FROM python:3.13-slim AS backend
+FROM python:3.14-slim AS backend
 
 WORKDIR /app
 
