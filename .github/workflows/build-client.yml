@@ -54,7 +54,7 @@ jobs:
             echo "✋ 使用手动输入的版本: $VERSION"
           else
             # 从 pyproject.toml 中提取版本号
-            VERSION=$(grep -E '^version = ' client/pyproject.toml | sed -E "s/version = ['\"](.*)['\"]/\1/" | xargs)
+            VERSION=$(grep -E '^version = ' client/python/pyproject.toml | sed -E "s/version = ['\"](.*)['\"]/\1/" | xargs)
             echo "📄 从 pyproject.toml 提取的版本: $VERSION"
           fi
           
@@ -81,7 +81,7 @@ jobs:
           echo "✅ 构建版本: $VERSION"
       
       - name: 验证版本一致性
-        working-directory: ./client
+        working-directory: ./client/python
         run: |
           # 从 pyproject.toml 读取版本（去除前后空白）
           PYPROJECT_VERSION=$(grep -E '^version = ' pyproject.toml | sed -E "s/version = ['\"](.*)['\"]/\1/" | xargs)
@@ -115,7 +115,7 @@ jobs:
       - name: 设置 Python
         uses: actions/setup-python@v5
         with:
-          python-version: '3.11'
+          python-version: '3.14'
           cache: 'pip'
       
       - name: 安装构建工具
@@ -124,14 +124,14 @@ jobs:
           pip install build wheel
       
       - name: 构建 client 包
-        working-directory: ./client
+        working-directory: ./client/python
         run: |
           echo "开始构建版本 ${{ steps.version.outputs.version }}..."
           python -m build
           echo "✅ 构建完成"
       
       - name: 显示构建产物
-        working-directory: ./client
+        working-directory: ./client/python
         run: |
           echo "📦 构建产物："
           ls -lh dist/
@@ -143,7 +143,7 @@ jobs:
           du -sh dist/*
       
       - name: 验证构建产物
-        working-directory: ./client
+        working-directory: ./client/python
         run: |
           # 检查是否生成了 wheel 和 source distribution
           if [ ! -f "dist/py_auth_client-${{ steps.version.outputs.version }}-py3-none-any.whl" ]; then
@@ -162,7 +162,7 @@ jobs:
         uses: actions/upload-artifact@v4
         with:
           name: py-auth-client-${{ steps.version.outputs.version }}
-          path: client/dist/*
+          path: client/python/dist/*
           retention-days: 30
           if-no-files-found: error
       
@@ -170,7 +170,7 @@ jobs:
         if: github.ref_type == 'tag'
         uses: softprops/action-gh-release@v1
         with:
-          files: client/dist/*
+          files: client/python/dist/*
           name: Release v${{ steps.version.outputs.version }}
           body: |
             ## py-auth-client v${{ steps.version.outputs.version }}
