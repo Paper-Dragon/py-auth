@@ -5,6 +5,7 @@ services:
     image: mysql:8.0
     container_name: auth-mysql
     environment:
+      TZ: Asia/Shanghai
       MYSQL_ROOT_PASSWORD: ${MYSQL_ROOT_PASSWORD:-password}
       MYSQL_DATABASE: ${MYSQL_DATABASE:-auth_db}
     volumes:
@@ -24,6 +25,7 @@ services:
       mysql:
         condition: service_healthy
     environment:
+      TZ: Asia/Shanghai
       DATABASE_TYPE: mysql
       MYSQL_HOST: mysql
       MYSQL_PORT: 3306

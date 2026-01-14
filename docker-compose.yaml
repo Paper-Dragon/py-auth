@@ -6,6 +6,7 @@ services:
     build: .
     container_name: auth-service
     environment:
+      TZ: Asia/Shanghai
       DATABASE_TYPE: sqlite
       SQLITE_PATH: /app/data/auth.db
       CLIENT_SECRET: aB3cD5eF7gH9iJ1kL3mN5oP7qR9sT1uV3wX5yZ7aB9cD1eF3gH5iJ7kL9mN1oP3qR5sT7uV9wX1yZ3

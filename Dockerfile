@@ -16,6 +16,8 @@ FROM python:3.14-slim AS backend
 
 WORKDIR /app
 
+ENV TZ=Asia/Shanghai
+
 RUN apt-get update && apt-get install -y --no-install-recommends \
     gcc \
     default-libmysqlclient-dev \
