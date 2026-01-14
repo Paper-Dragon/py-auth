@@ -25,8 +25,8 @@ async def get_devices(
     db: Session = Depends(get_db),
     current_user: User = Depends(get_current_user)
 ):
-    """获取所有设备列表（需要登录）"""
-    return db.query(Device).offset(skip).limit(limit).all()
+    """获取所有设备列表（需要登录），按更新时间降序排列"""
+    return db.query(Device).order_by(Device.updated_at.desc()).offset(skip).limit(limit).all()
 
 @router.get("/devices/{device_id}", response_model=DeviceResponse)
 async def get_device(
