@@ -97,11 +97,7 @@
             <template #default="{ row }">
               <el-button v-if="row.is_authorized" type="warning" size="small" @click="toggleAuth(row, false)" :loading="row._updating">取消</el-button>
               <el-button v-else type="success" size="small" @click="toggleAuth(row, true)" :loading="row._updating">授权</el-button>
-              <el-popconfirm title="确定删除?" @confirm="deleteDevice(row)">
-                <template #reference>
-                  <el-button type="danger" size="small" :loading="row._updating">删除</el-button>
-                </template>
-              </el-popconfirm>
+              <el-button type="danger" size="small" @click="deleteDevice(row)" :loading="row._updating">删除</el-button>
             </template>
           </el-table-column>
         </el-table>
@@ -147,11 +143,7 @@
               <div class="card-footer">
                 <el-button v-if="device.is_authorized" type="warning" size="small" @click="toggleAuth(device, false)" :loading="device._updating">取消授权</el-button>
                 <el-button v-else type="success" size="small" @click="toggleAuth(device, true)" :loading="device._updating">授权</el-button>
-                <el-popconfirm title="确定删除?" @confirm="deleteDevice(device)">
-                  <template #reference>
-                    <el-button type="danger" size="small" :loading="device._updating">删除</el-button>
-                  </template>
-                </el-popconfirm>
+                <el-button type="danger" size="small" @click="deleteDevice(device)" :loading="device._updating">删除</el-button>
               </div>
             </div>
           </div>

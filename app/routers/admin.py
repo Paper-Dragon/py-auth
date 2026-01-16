@@ -48,6 +48,16 @@ async def update_device(
     device = get_device_or_404(device_id, db)
     
     update_data = device_update.model_dump(exclude_unset=True)
+    
+    # 单独处理授权状态更新（不触发 updated_at）
+    if "is_authorized" in update_data:
+        db.execute(
+            Device.__table__.update()
+            .where(Device.device_id == device_id)
+            .values(is_authorized=update_data.pop("is_authorized"))
+        )
+    
+    # 更新其他字段（会触发 updated_at）
     for key, value in update_data.items():
         setattr(device, key, value)
     
