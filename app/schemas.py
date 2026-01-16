@@ -30,7 +30,6 @@ class DeviceResponse(BaseModel):
         from_attributes = True
 
 class DeviceUpdate(BaseModel):
-    software_name: Optional[str] = None  # 软件名
     remark: Optional[str] = None
     is_authorized: Optional[bool] = None
 

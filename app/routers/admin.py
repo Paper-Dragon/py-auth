@@ -18,15 +18,17 @@ def get_device_or_404(device_id: str, db: Session) -> Device:
         raise HTTPException(status_code=404, detail="设备不存在")
     return device
 
-@router.get("/devices", response_model=List[DeviceResponse])
+@router.get("/devices")
 async def get_devices(
-    skip: int = 0,
-    limit: int = 100,
+    page: int = 1,
+    page_size: int = 10,
     db: Session = Depends(get_db),
     current_user: User = Depends(get_current_user)
 ):
     """获取所有设备列表（需要登录），按更新时间降序排列"""
-    return db.query(Device).order_by(Device.updated_at.desc()).offset(skip).limit(limit).all()
+    total = db.query(Device).count()
+    devices = db.query(Device).order_by(Device.updated_at.desc()).offset((page - 1) * page_size).limit(page_size).all()
+    return {"total": total, "devices": [DeviceResponse.model_validate(d) for d in devices]}
 
 @router.get("/devices/{device_id}", response_model=DeviceResponse)
 async def get_device(
@@ -49,20 +51,11 @@ async def update_device(
     
     update_data = device_update.model_dump(exclude_unset=True)
     
-    # 单独处理授权状态更新（不触发 updated_at）
-    if "is_authorized" in update_data:
-        db.execute(
-            Device.__table__.update()
-            .where(Device.device_id == device_id)
-            .values(is_authorized=update_data.pop("is_authorized"))
-        )
+    if update_data:
+        db.query(Device).filter(Device.device_id == device_id).update(update_data, synchronize_session=False)
+        db.commit()
+        db.refresh(device)
     
-    # 更新其他字段（会触发 updated_at）
-    for key, value in update_data.items():
-        setattr(device, key, value)
-    
-    db.commit()
-    db.refresh(device)
     return device
 
 @router.delete("/devices/{device_id}")
@@ -72,8 +65,7 @@ async def delete_device(
     current_user: User = Depends(get_current_user)
 ):
     """删除设备（需要登录）"""
-    device = get_device_or_404(device_id, db)
-    db.delete(device)
+    db.query(Device).filter(Device.device_id == device_id).delete()
     db.commit()
-    return {"message": "设备已删除"}
+    return {"message": "已删除"}
 

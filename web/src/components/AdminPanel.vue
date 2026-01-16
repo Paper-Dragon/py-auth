@@ -29,7 +29,7 @@
         <div class="stat-card">
           <div class="stat-icon total"><el-icon :size="24"><Box /></el-icon></div>
           <div class="stat-info">
-            <span class="stat-value">{{ devices.length }}</span>
+            <span class="stat-value">{{ total }}</span>
             <span class="stat-label">总设备</span>
           </div>
         </div>
@@ -148,6 +148,19 @@
             </div>
           </div>
         </div>
+
+        <!-- 分页 -->
+        <div class="pagination">
+          <el-pagination
+            v-model:current-page="currentPage"
+            v-model:page-size="pageSize"
+            :page-sizes="[10, 30, 50]"
+            :total="total"
+            layout="total, sizes, prev, pager, next"
+            @size-change="loadDevices"
+            @current-change="loadDevices"
+          />
+        </div>
       </div>
 
       <!-- 设备信息弹窗 -->
@@ -199,6 +212,9 @@ const showChangePasswordDialog = ref(false)
 const changingPassword = ref(false)
 const passwordFormRef = ref(null)
 const passwordForm = ref({ oldPassword: '', newPassword: '', confirmPassword: '' })
+const currentPage = ref(1)
+const pageSize = ref(10)
+const total = ref(0)
 let refreshTimer = null
 
 const authorizedCount = computed(() => devices.value.filter(d => d.is_authorized).length)
@@ -207,8 +223,9 @@ const unauthorizedCount = computed(() => devices.value.filter(d => !d.is_authori
 const loadDevices = async () => {
   loading.value = true
   try {
-    const data = await api.getDevices()
-    devices.value = data.map(d => ({
+    const data = await api.getDevices(currentPage.value, pageSize.value)
+    total.value = data.total
+    devices.value = data.devices.map(d => ({
       ...d,
       _originalRemark: d.remark || '',
       _remarkValue: d.remark || '',
@@ -494,6 +511,12 @@ onUnmounted(() => {
 .op-btn {
   width: 58px;
   padding: 5px 0;
+}
+
+.pagination {
+  margin-top: 16px;
+  display: flex;
+  justify-content: flex-end;
 }
 
 /* Mobile List */
