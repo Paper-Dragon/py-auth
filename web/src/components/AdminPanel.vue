@@ -93,11 +93,13 @@
           <el-table-column prop="updated_at" label="更新时间" width="160">
             <template #default="{ row }">{{ formatDate(row.updated_at) }}</template>
           </el-table-column>
-          <el-table-column label="操作" width="140" fixed="right" align="center">
+          <el-table-column label="操作" width="180" fixed="right" align="center">
             <template #default="{ row }">
-              <el-button v-if="row.is_authorized" type="warning" size="small" class="op-btn" @click="toggleAuth(row, false)" :loading="row._updating">取消</el-button>
-              <el-button v-else type="success" size="small" class="op-btn" @click="toggleAuth(row, true)" :loading="row._updating">授权</el-button>
-              <el-button type="danger" size="small" class="op-btn" @click="deleteDevice(row)" :loading="row._updating">删除</el-button>
+              <div class="op-btns">
+                <el-button v-if="row.is_authorized" type="warning" size="small" @click="toggleAuth(row, false)" :loading="row._updating">取消授权</el-button>
+                <el-button v-else type="success" size="small" @click="toggleAuth(row, true)" :loading="row._updating">授权</el-button>
+                <el-button type="danger" size="small" @click="deleteDevice(row)" :loading="row._updating">删除设备</el-button>
+              </div>
             </template>
           </el-table-column>
         </el-table>
@@ -508,8 +510,13 @@ onUnmounted(() => {
   border-radius: 4px;
 }
 
-.op-btn {
-  width: 58px;
+.op-btns {
+  display: flex;
+  gap: 4px;
+}
+
+.op-btns .el-button {
+  flex: 1;
   padding: 5px 0;
 }
 

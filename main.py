@@ -1,3 +1,4 @@
+from contextlib import asynccontextmanager
 from fastapi import FastAPI
 from fastapi.staticfiles import StaticFiles
 from fastapi.responses import FileResponse
@@ -9,6 +10,7 @@ from app.auth import init_admin_user
 from app.middleware import setup_cors
 import logging
 import os
+import sys
 
 # 加载 .env 文件
 load_dotenv()
@@ -16,26 +18,46 @@ load_dotenv()
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
 
-# 创建数据库表
-try:
+def init_database():
+    """初始化数据库（使用文件锁确保多 worker 只执行一次）"""
+    if sys.platform != "win32":
+        import fcntl
+        lock_file = "/tmp/py_auth_init.lock"
+        try:
+            with open(lock_file, "w") as f:
+                fcntl.flock(f, fcntl.LOCK_EX | fcntl.LOCK_NB)
+                try:
+                    _do_init()
+                finally:
+                    fcntl.flock(f, fcntl.LOCK_UN)
+        except BlockingIOError:
+            pass
+        except Exception as e:
+            logger.error(f"数据库初始化失败: {str(e)}")
+    else:
+        _do_init()
+
+def _do_init():
+    """执行数据库初始化"""
     Base.metadata.create_all(bind=engine)
     logger.info("数据库表创建成功")
-    
-    # 初始化管理员用户
     db = SessionLocal()
     try:
         admin_username, admin_password = init_admin_user(db)
         logger.info(f"默认管理员账户: {admin_username} / {admin_password}")
     finally:
         db.close()
-except Exception as e:
-    logger.error(f"数据库表创建失败: {str(e)}")
-    logger.warning("请确保数据库配置正确")
+
+@asynccontextmanager
+async def lifespan(app: FastAPI):
+    init_database()
+    yield
 
 app = FastAPI(
     title="Python授权服务",
     description="软件授权管理系统",
-    version="1.0.0"
+    version="1.0.0",
+    lifespan=lifespan
 )
 
 # CORS配置
