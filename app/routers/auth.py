@@ -1,10 +1,10 @@
 from fastapi import APIRouter, Depends, HTTPException, status
 from sqlalchemy.orm import Session
-from datetime import datetime, timezone
+from datetime import datetime
 import logging
 from app.database import get_db
 from app.models import Device
-from app.schemas import DeviceAuthRequest, AuthCheckResponse, EncryptedRequest, EncryptedResponse
+from app.schemas import DeviceAuthRequest, EncryptedRequest, EncryptedResponse
 from app.auth import decrypt_request_data, encrypt_response_data
 
 logger = logging.getLogger(__name__)
@@ -49,8 +49,8 @@ def _process_device(request: DeviceAuthRequest, db: Session) -> Device:
         )
         db.add(device)
     
-    # 更新最后检查时间
-    device.last_check = datetime.now(timezone.utc)
+    # 更新最后检查时间（使用本地时间，与 created_at 和 updated_at 保持一致）
+    device.last_check = datetime.now()
     db.commit()
     db.refresh(device)
     

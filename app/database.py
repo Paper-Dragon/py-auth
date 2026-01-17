@@ -55,7 +55,11 @@ else:
     DATABASE_URL = f"sqlite:///{sqlite_path}"
     engine = create_engine(
         DATABASE_URL,
-        connect_args={"check_same_thread": False},  # SQLite 需要这个参数
+        connect_args={
+            "check_same_thread": False,  # SQLite 需要这个参数
+            "timeout": 20.0  # 锁超时时间（秒），避免无限等待
+        },
+        pool_pre_ping=True,  # 连接前检查连接是否有效
         echo=False
     )
 

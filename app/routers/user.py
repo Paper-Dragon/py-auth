@@ -11,8 +11,6 @@ from app.auth import (
     authenticate_user, 
     create_access_token, 
     get_current_user,
-    get_user_by_username,
-    create_user,
     verify_password,
     get_password_hash,
     ACCESS_TOKEN_EXPIRE_MINUTES
@@ -32,9 +30,8 @@ async def login(
         raise HTTPException(
             status_code=status.HTTP_401_UNAUTHORIZED,
             detail="用户名或密码错误",
-            headers={"WWW-Authenticate": "Bearer"},
+            headers={"WWW-Authenticate": "Bearer"}
         )
-    
     if not user.is_active:
         raise HTTPException(
             status_code=status.HTTP_403_FORBIDDEN,

@@ -93,6 +93,9 @@
           <el-table-column prop="updated_at" label="更新时间" width="160">
             <template #default="{ row }">{{ formatDate(row.updated_at) }}</template>
           </el-table-column>
+          <el-table-column prop="last_check" label="最后检查" width="160">
+            <template #default="{ row }">{{ formatDate(row.last_check) }}</template>
+          </el-table-column>
           <el-table-column label="操作" width="180" fixed="right" align="center">
             <template #default="{ row }">
               <div class="op-btns">
@@ -133,6 +136,10 @@
                 <div class="info-row" v-if="device.updated_at">
                   <span class="label">更新：</span>
                   <span class="value">{{ formatDate(device.updated_at) }}</span>
+                </div>
+                <div class="info-row" v-if="device.last_check">
+                  <span class="label">最后检查：</span>
+                  <span class="value">{{ formatDate(device.last_check) }}</span>
                 </div>
                 <div class="info-row" v-if="device.device_info">
                   <el-button type="primary" link size="small" @click="showDeviceInfo(device)">查看设备详情</el-button>
@@ -261,8 +268,14 @@ const showDeviceInfo = (device) => {
 const saveRemark = async (device) => {
   if (device._remarkValue === device._originalRemark) return
   try {
-    await api.updateDevice(device.device_id, { remark: device._remarkValue })
-    device._originalRemark = device._remarkValue
+    // 只传递备注字段，updated_at 由后端自动处理
+    const updatedDevice = await api.updateDevice(device.device_id, { remark: device._remarkValue })
+    // 更新本地设备对象，使用后端返回的数据（包括后端设置的 updated_at）
+    Object.assign(device, {
+      ...updatedDevice,
+      _originalRemark: updatedDevice.remark || '',
+      _remarkValue: updatedDevice.remark || ''
+    })
     ElMessage.success('备注已保存')
   } catch (e) {
     device._remarkValue = device._originalRemark
@@ -271,10 +284,18 @@ const saveRemark = async (device) => {
 }
 
 const toggleAuth = async (device, authorize) => {
+  // 防止重复点击
+  if (device._updating) return
   device._updating = true
   try {
-    await api.updateDevice(device.device_id, { is_authorized: authorize })
-    device.is_authorized = authorize
+    // 只传递授权状态字段，updated_at 由后端自动处理
+    const updatedDevice = await api.updateDevice(device.device_id, { is_authorized: authorize })
+    // 更新本地设备对象，使用后端返回的数据（包括后端设置的 updated_at）
+    Object.assign(device, {
+      ...updatedDevice,
+      _originalRemark: updatedDevice.remark || '',
+      _remarkValue: updatedDevice.remark || ''
+    })
     ElMessage.success(authorize ? '已授权' : '已取消授权')
   } catch (e) {
     if (e.message.includes('登录已过期')) emit('logout')
