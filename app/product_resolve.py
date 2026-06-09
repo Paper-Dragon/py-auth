@@ -3,7 +3,7 @@ from __future__ import annotations
 
 from sqlalchemy.orm import Session
 
-from app.auth import CLIENT_SECRET
+from app.config import CLIENT_SECRET
 from app.models import Device, Product
 from app.product_utils import DEFAULT_PRODUCT_SOFTWARE_NAME
 

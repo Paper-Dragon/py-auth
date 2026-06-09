@@ -11,6 +11,7 @@ from app.auth import get_password_hash
 from app.audit import add_operation_log
 from app.deps import require_admin
 from app.rate_limit import load_rate_limit_config, save_rate_limit_config
+from app.services import user_service
 import logging
 
 logger = logging.getLogger(__name__)
@@ -137,16 +138,17 @@ async def create_user(
     db: Session = Depends(get_db),
     current_user: User = Depends(require_admin)
 ):
-    if db.query(User).filter(User.username == user_data.username).first():
+    if user_service.username_exists(db, user_data.username):
         raise HTTPException(status_code=400, detail="用户名已存在")
-    
-    new_user = User(
+
+    new_user = user_service.create_user(
+        db,
         username=user_data.username,
-        password_hash=get_password_hash(user_data.password),
+        password=user_data.password,
         is_admin=user_data.is_admin,
-        is_active=user_data.is_active
+        is_active=user_data.is_active,
+        commit=False,
     )
-    db.add(new_user)
     add_operation_log(
         db,
         username=current_user.username,

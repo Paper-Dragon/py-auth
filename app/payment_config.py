@@ -5,6 +5,7 @@ from urllib.parse import urlparse
 
 from sqlalchemy.orm import Session
 
+from app.coerce import coerce_boolish
 from app.epay import EPAY_PAY_TYPES
 from app.models import Config
 
@@ -24,16 +25,6 @@ DEFAULT_EPAY_CONFIG: dict[str, Any] = {
 }
 
 MASKED_KEY_PLACEHOLDER = "********"
-
-
-def _coerce_bool(value: Any, default: bool = False) -> bool:
-    if isinstance(value, bool):
-        return value
-    if value is None:
-        return default
-    if isinstance(value, str):
-        return value.strip().lower() in ("1", "true", "yes", "on")
-    return bool(value)
 
 
 def normalize_enabled_channels(channels: Any) -> list[str]:
@@ -83,7 +74,7 @@ def load_epay_config(db: Session) -> dict[str, Any]:
     if not config.get("return_url"):
         config["return_url"] = os.getenv("EPAY_RETURN_URL", "").strip()
 
-    config["enabled"] = _coerce_bool(config.get("enabled"), False)
+    config["enabled"] = coerce_boolish(config.get("enabled"), if_none=False)
     config["enabled_channels"] = normalize_enabled_channels(config.get("enabled_channels"))
     return config
 
@@ -106,7 +97,7 @@ def save_epay_config(db: Session, updates: dict[str, Any], existing: dict[str, A
         if new_key and new_key != MASKED_KEY_PLACEHOLDER:
             current["key"] = new_key
 
-    current["enabled"] = _coerce_bool(current.get("enabled"), False)
+    current["enabled"] = coerce_boolish(current.get("enabled"), if_none=False)
     current["api_url"] = str(current.get("api_url", "")).strip().rstrip("/")
     current["pid"] = str(current.get("pid", "")).strip()
     current["notify_url"] = str(current.get("notify_url", "")).strip()
@@ -116,7 +107,7 @@ def save_epay_config(db: Session, updates: dict[str, Any], existing: dict[str, A
     current["sitename"] = str(current.get("sitename", "")).strip()
     current["enabled_channels"] = normalize_enabled_channels(current.get("enabled_channels"))
 
-    if _coerce_bool(current.get("enabled"), False) and not current["enabled_channels"]:
+    if coerce_boolish(current.get("enabled"), if_none=False) and not current["enabled_channels"]:
         raise ValueError("启用易支付时须至少开通一种支付渠道")
 
     if row:
@@ -199,7 +190,7 @@ def ensure_epay_credentials(
     require_enabled: bool = True,
     require_callbacks: bool = True,
 ) -> dict[str, str]:
-    if require_enabled and not _coerce_bool(config.get("enabled"), False):
+    if require_enabled and not coerce_boolish(config.get("enabled"), if_none=False):
         raise ValueError("易支付尚未启用")
     api_url = str(config.get("api_url") or "").strip().rstrip("/")
     pid = str(config.get("pid") or "").strip()

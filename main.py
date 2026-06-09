@@ -74,7 +74,8 @@ app.include_router(admin.router)
 app.include_router(user_router.router)
 app.include_router(ws_router.router)
 app.include_router(products_router.router)
-app.include_router(payment_router.router)
+app.include_router(payment_router.admin_router)
+app.include_router(payment_router.public_router)
 
         
 web_dist_path = os.path.join(os.path.dirname(__file__), "web", "dist")

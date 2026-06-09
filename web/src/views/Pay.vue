@@ -194,6 +194,8 @@ import { parsePayPageQuery } from '../utils/payPageUrl'
 
 import { savePaymentOrderContext } from '../utils/paymentOrderContext'
 
+import { useQrOrderPolling } from '../composables/useQrOrderPolling'
+
 
 
 const route = useRoute()
@@ -214,9 +216,17 @@ const pendingQuery = ref(parsePayPageQuery(route.query))
 
 const autoPayPending = ref(false)
 
-const qrState = ref(null)
+const qrPoll = useQrOrderPolling({
 
-let qrPollTimer = null
+  onPaid: (state) => {
+
+    router.push({ path: '/pay/result', query: { out_trade_no: state.out_trade_no } })
+
+  },
+
+})
+
+const qrState = qrPoll.qrState
 
 
 
@@ -476,79 +486,19 @@ const submit = async () => {
 
 
 
-const stopQrPoll = () => {
-
-  if (qrPollTimer) {
-
-    clearInterval(qrPollTimer)
-
-    qrPollTimer = null
-
-  }
-
-}
-
-
+const stopQrPoll = qrPoll.stop
 
 const startQrPay = (order, deviceId) => {
 
   errorMessage.value = ''
 
-  qrState.value = {
-
-    out_trade_no: order.out_trade_no,
-
-    qr_image: order.qr_image,
-
-    money: order.money,
-
-    pay_type: order.pay_type,
-
-    device_id: deviceId,
-
-  }
-
-  stopQrPoll()
-
-  qrPollTimer = setInterval(pollQrOrder, 3000)
+  qrPoll.start(order, deviceId)
 
 }
-
-
-
-const pollQrOrder = async () => {
-
-  const state = qrState.value
-
-  if (!state) return
-
-  try {
-
-    const order = await api.getPaymentOrder(state.out_trade_no, true, state.device_id)
-
-    if (order.status === 'paid') {
-
-      stopQrPoll()
-
-      router.push({ path: '/pay/result', query: { out_trade_no: state.out_trade_no } })
-
-    }
-
-  } catch (error) {
-
-    // 轮询失败忽略，等待下次重试
-
-  }
-
-}
-
-
 
 const cancelQrPay = () => {
 
-  stopQrPoll()
-
-  qrState.value = null
+  qrPoll.cancel()
 
   errorMessage.value = ''
 

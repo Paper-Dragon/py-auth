@@ -5,7 +5,7 @@ from fastapi import APIRouter, Depends, HTTPException, status
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session
 
-from app.auth import encrypt_response_data, try_decrypt_heartbeat
+from app.crypto import encrypt_response_data, try_decrypt_heartbeat
 from app.database import get_db
 from app.models import Device, Product
 from app.product_auth import evaluate_device_authorization, resolve_initial_authorization

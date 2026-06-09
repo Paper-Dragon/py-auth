@@ -8,6 +8,7 @@ from typing import Any
 from fastapi import Depends, HTTPException, Request, status
 from sqlalchemy.orm import Session
 
+from app.coerce import coerce_boolish
 from app.database import get_db
 from app.models import Config
 
@@ -48,16 +49,6 @@ class SlidingWindowLimiter:
 _limiter = SlidingWindowLimiter()
 
 
-def _coerce_bool(value: Any, default: bool = False) -> bool:
-    if isinstance(value, bool):
-        return value
-    if value is None:
-        return default
-    if isinstance(value, str):
-        return value.strip().lower() in ("1", "true", "yes", "on")
-    return bool(value)
-
-
 def _normalize_rule(raw: Any, fallback: dict[str, int]) -> dict[str, int]:
     data = raw if isinstance(raw, dict) else {}
     try:
@@ -76,7 +67,7 @@ def _normalize_rule(raw: Any, fallback: dict[str, int]) -> dict[str, int]:
 
 def normalize_rate_limit_config(raw: Any) -> dict[str, Any]:
     base = {
-        "enabled": _coerce_bool(DEFAULT_RATE_LIMIT["enabled"], True),
+        "enabled": coerce_boolish(DEFAULT_RATE_LIMIT["enabled"], if_none=True),
         "login": dict(DEFAULT_RATE_LIMIT["login"]),
         "heartbeat": dict(DEFAULT_RATE_LIMIT["heartbeat"]),
         "payment_order": dict(DEFAULT_RATE_LIMIT["payment_order"]),
@@ -84,7 +75,7 @@ def normalize_rate_limit_config(raw: Any) -> dict[str, Any]:
     if not isinstance(raw, dict):
         return base
 
-    base["enabled"] = _coerce_bool(raw.get("enabled"), base["enabled"])
+    base["enabled"] = coerce_boolish(raw.get("enabled"), if_none=base["enabled"])
     for scope in RATE_LIMIT_SCOPES:
         base[scope] = _normalize_rule(raw.get(scope), DEFAULT_RATE_LIMIT[scope])
     return base
@@ -100,7 +91,7 @@ def load_rate_limit_config(db: Session) -> dict[str, Any]:
 def save_rate_limit_config(db: Session, updates: dict[str, Any]) -> dict[str, Any]:
     current = load_rate_limit_config(db)
     if "enabled" in updates and updates["enabled"] is not None:
-        current["enabled"] = _coerce_bool(updates["enabled"], current["enabled"])
+        current["enabled"] = coerce_boolish(updates["enabled"], if_none=current["enabled"])
     for scope in RATE_LIMIT_SCOPES:
         if scope in updates and isinstance(updates[scope], dict):
             current[scope] = _normalize_rule(updates[scope], current[scope])

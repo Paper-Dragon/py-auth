@@ -270,22 +270,20 @@
 
 <script setup>
 import { ref, onMounted, onUnmounted, computed, nextTick } from 'vue'
-
-
-function formatDeviceInfoJson(raw) {
-  if (raw == null || raw === '') return ''
-  try {
-    const o = typeof raw === 'string' ? JSON.parse(raw) : raw
-    return JSON.stringify(o, null, 2)
-  } catch {
-    return typeof raw === 'string' ? raw : JSON.stringify(raw, null, 2)
-  }
-}
 import { Refresh, Box, CircleCheck, CircleClose } from '@element-plus/icons-vue'
 import { ElMessage, ElMessageBox } from 'element-plus'
-import { api, notifySessionExpired, SESSION_EXPIRED_MESSAGE } from '../api'
+import { api } from '../api'
 import { reportApiError } from '../utils/errorFeedback'
 import { authModeLabel as sharedAuthModeLabel } from '../constants/authModes'
+import { useDeviceSocket } from '../composables/useDeviceSocket'
+import {
+  formatDate,
+  formatDeviceInfoJson,
+  maskDeviceId,
+  productLabel,
+  showSoftwareName,
+} from '../utils/deviceFormat'
+
 const devices = ref([])
 const expandedDeviceIds = ref(new Set())
 const tableRef = ref(null)
@@ -343,36 +341,14 @@ const filterKeyword = ref('')
 const filterAuthStatus = ref('')
 const sortBy = ref('updated_at')
 const sortOrder = ref('desc')
-let deviceSocket = null
-let reconnectTimer = null
-let reconnectEnabled = true
 
 let pendingDevicesReload = false
 let lastPageHiddenAt = 0
-let wsRequestSeq = 0
-const pendingWsRequests = new Map()
 
 const authorizedCount = computed(() => summary.value.authorized ?? 0)
 const unauthorizedCount = computed(() => summary.value.unauthorized ?? 0)
 
 const authModeLabel = (mode) => sharedAuthModeLabel(mode, '未绑定产品')
-
-const productLabel = (row) => {
-  if (row?.product_display_name) return row.product_display_name
-  if (row?.product_key) return row.product_key
-  return '未绑定'
-}
-
-const showSoftwareName = (row) => {
-  const name = (row?.software_name || '').trim()
-  return !!name && name !== productLabel(row)
-}
-
-const maskDeviceId = (id) => {
-  const value = String(id || '')
-  if (value.length <= 14) return value
-  return `${value.slice(0, 8)}…${value.slice(-5)}`
-}
 
 const toggleDeviceId = (deviceId) => {
   const next = new Set(expandedDeviceIds.value)
@@ -406,121 +382,20 @@ const applyDevicesPayload = (data) => {
   nextTick(() => tableRef.value?.doLayout())
 }
 
-const rejectPendingWsRequests = (message) => {
-  for (const [, pending] of pendingWsRequests) {
-    pending.reject(new Error(message))
-  }
-  pendingWsRequests.clear()
-}
-
-const sendWsRequest = (payload) => {
-  return new Promise((resolve, reject) => {
-    if (!deviceSocket || deviceSocket.readyState !== WebSocket.OPEN) {
-      reject(new Error('实时连接未就绪'))
-      return
-    }
-
-    wsRequestSeq += 1
-    const requestId = `r_${Date.now()}_${wsRequestSeq}`
-    pendingWsRequests.set(requestId, { resolve, reject, requestType: payload.type })
-    deviceSocket.send(JSON.stringify({ ...payload, request_id: requestId }))
-
-    setTimeout(() => {
-      const pending = pendingWsRequests.get(requestId)
-      if (!pending) return
-      pendingWsRequests.delete(requestId)
-      pending.reject(new Error('实时请求超时'))
-    }, 8000)
-  })
-}
-
-const cleanupWebSocket = () => {
-  if (deviceSocket) {
-    deviceSocket.close()
-    deviceSocket = null
-  }
-  if (reconnectTimer) {
-    clearTimeout(reconnectTimer)
-    reconnectTimer = null
-  }
-}
-
-const connectWebSocket = () => {
-  if (deviceSocket) return
-
-  const token = api.getToken()
-  if (!token) return
-
-  const protocol = window.location.protocol === 'https:' ? 'wss:' : 'ws:'
-  const wsUrl = `${protocol}//${window.location.host}/ws?token=${encodeURIComponent(token)}`
-  deviceSocket = new WebSocket(wsUrl)
-
-  deviceSocket.onmessage = (event) => {
-    try {
-      const data = JSON.parse(event.data)
-      if (data?.request_id) {
-        const pending = pendingWsRequests.get(data.request_id)
-        if (pending) {
-          pendingWsRequests.delete(data.request_id)
-          if (data.type === 'error') {
-            pending.reject(new Error(data.message || '实时请求失败'))
-            return
-          }
-          pending.resolve(data)
-          if (data.type === 'devices_list') {
-            applyDevicesPayload(data)
-          }
-          return
-        }
-      }
-
-      if (data?.type === 'devices_list') {
-        applyDevicesPayload(data)
-        return
-      }
-      if (data?.type === 'devices_changed') {
-        requestDevicesReload()
-      }
-    } catch {
-    }
-  }
-
-  deviceSocket.onclose = (event) => {
-    deviceSocket = null
-    if (event.code === 4401) {
-      rejectPendingWsRequests(SESSION_EXPIRED_MESSAGE)
-      notifySessionExpired()
-      return
-    }
-    rejectPendingWsRequests('实时连接已断开')
-
-    if (!reconnectEnabled) return
-    const delay = 3000
-    reconnectTimer = setTimeout(() => {
-      reconnectTimer = null
-      connectWebSocket()
-    }, delay)
-  }
-
-  deviceSocket.onerror = () => {
-    if (deviceSocket) {
-      deviceSocket.close()
-    }
-  }
-
-  deviceSocket.onopen = () => {
-    requestDevicesReload()
-  }
-}
+const socket = useDeviceSocket({
+  onDevicesList: applyDevicesPayload,
+  onDevicesChanged: requestDevicesReload,
+  onOpen: requestDevicesReload,
+})
 
 const loadDevices = async () => {
-  if (!deviceSocket || deviceSocket.readyState !== WebSocket.OPEN) {
-    connectWebSocket()
+  if (!socket.isOpen()) {
+    socket.connect()
     return
   }
   loading.value = true
   try {
-    const data = await sendWsRequest({
+    const data = await socket.sendRequest({
       type: 'get_devices',
       page: currentPage.value,
       page_size: pageSize.value,
@@ -576,15 +451,6 @@ const handleSortChange = ({ prop, order }) => {
   loadDevices()
 }
 
-const formatDate = (dateStr) => {
-  if (!dateStr) return '-'
-  try {
-    return new Date(dateStr).toLocaleString('zh-CN', { dateStyle: 'short', timeStyle: 'short' })
-  } catch {
-    return dateStr
-  }
-}
-
 const showDeviceInfo = (device) => {
   deviceInfoJsonText.value = formatDeviceInfoJson(device?.device_info)
   deviceInfoVisible.value = true
@@ -593,7 +459,7 @@ const showDeviceInfo = (device) => {
 const saveRemark = async (device) => {
   if (device._remarkValue === device._originalRemark) return
   try {
-    const result = await sendWsRequest({
+    const result = await socket.sendRequest({
       type: 'update_device',
       device_id: device.device_id,
       data: { remark: device._remarkValue }
@@ -612,11 +478,10 @@ const saveRemark = async (device) => {
 }
 
 const toggleAuth = async (device, authorize) => {
-  
   if (device._updating) return
   device._updating = true
   try {
-    const result = await sendWsRequest({
+    const result = await socket.sendRequest({
       type: 'update_device',
       device_id: device.device_id,
       data: { is_authorized: authorize }
@@ -638,7 +503,7 @@ const toggleAuth = async (device, authorize) => {
 const deleteDevice = async (device) => {
   device._updating = true
   try {
-    await sendWsRequest({
+    await socket.sendRequest({
       type: 'delete_device',
       device_id: device.device_id
     })
@@ -669,7 +534,7 @@ const deleteSelectedDevices = async () => {
   }
   bulkDeleting.value = true
   try {
-    const result = await sendWsRequest({
+    const result = await socket.sendRequest({
       type: 'delete_devices',
       device_ids: ids
     })
@@ -692,22 +557,22 @@ const onVisibilityChange = () => {
   const awayMs = lastPageHiddenAt ? Date.now() - lastPageHiddenAt : 0
   lastPageHiddenAt = 0
 
-  if (!deviceSocket || deviceSocket.readyState !== WebSocket.OPEN) {
-    reconnectEnabled = true
-    connectWebSocket()
+  if (!socket.isOpen()) {
+    socket.setReconnectEnabled(true)
+    socket.connect()
     return
   }
-  
+
   if (awayMs >= 3000) {
     requestDevicesReload()
   }
 }
 
 onMounted(() => {
-  reconnectEnabled = true
+  socket.setReconnectEnabled(true)
   document.addEventListener('visibilitychange', onVisibilityChange)
   void loadProductOptions()
-  connectWebSocket()
+  socket.connect()
   nextTick(() => {
     const section = document.querySelector('.device-section')
     if (!section || !tableRef.value) return
@@ -722,10 +587,10 @@ onUnmounted(() => {
   document.removeEventListener('visibilitychange', onVisibilityChange)
   tableResizeObserver?.disconnect()
   tableResizeObserver = null
-  reconnectEnabled = false
+  socket.setReconnectEnabled(false)
   pendingDevicesReload = false
-  rejectPendingWsRequests('页面已关闭')
-  cleanupWebSocket()
+  socket.rejectPendingRequests('页面已关闭')
+  socket.cleanup()
 })
 </script>
 

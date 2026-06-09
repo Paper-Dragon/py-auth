@@ -80,7 +80,7 @@ def client_software_name_matches_product(
 def client_secret_for_product(product: Product) -> str:
     """默认产品的 Client Secret 固定读取环境变量 CLIENT_SECRET。"""
     if product.is_default:
-        from app.auth import CLIENT_SECRET
+        from app.config import CLIENT_SECRET
 
         return (CLIENT_SECRET or "").strip()
     return (product.client_secret or "").strip()

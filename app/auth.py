@@ -1,109 +1,24 @@
 """
-用户认证相关工具
+用户认证相关工具：密码哈希、JWT 颁发/校验、当前用户依赖。
+
+心跳加解密已拆分至 app.crypto；认证/加密相关环境常量集中在 app.config。
 """
+import os
+import logging
 from datetime import datetime, timedelta, timezone
-from typing import Optional, Dict, Any
+from typing import Optional
+
 from jose import JWTError, jwt
 from passlib.context import CryptContext
 from fastapi import Depends, HTTPException, status
 from fastapi.security import HTTPBearer, HTTPAuthorizationCredentials
 from sqlalchemy.orm import Session
+
+from app.config import ACCESS_TOKEN_EXPIRE_MINUTES, ALGORITHM, SECRET_KEY
 from app.database import get_db
-from app.models import Product, User
-import os
-import json
-import base64
-import logging
-from cryptography.fernet import Fernet
-import hashlib
+from app.models import User
 
 logger = logging.getLogger(__name__)
-
-    
-SECRET_KEY = os.getenv("SECRET_KEY", "your-secret-key-change-in-production-12345678")
-ALGORITHM = "HS256"
-ACCESS_TOKEN_EXPIRE_MINUTES = int(os.getenv("ACCESS_TOKEN_EXPIRE_MINUTES", "1440"))          
-                    
-CLIENT_SECRET = os.getenv("CLIENT_SECRET", "")
-
-_cipher_cache: dict[str, Fernet] = {}
-
-
-def _build_cipher(client_secret: str) -> Optional[Fernet]:
-    secret = (client_secret or "").strip()
-    if not secret:
-        return None
-    if secret in _cipher_cache:
-        return _cipher_cache[secret]
-    try:
-        key_bytes = hashlib.sha256(secret.encode("utf-8")).digest()
-        key = base64.urlsafe_b64encode(key_bytes)
-        cipher = Fernet(key)
-        _cipher_cache[secret] = cipher
-        return cipher
-    except Exception as e:
-        logger.error(f"初始化加密器失败: {e}")
-        return None
-
-
-def decrypt_request_data(
-    encrypted_data: str,
-    client_secret: str | None = None,
-) -> Optional[Dict[str, Any]]:
-    """解密客户端请求数据"""
-    cipher = _build_cipher(client_secret or CLIENT_SECRET)
-    if not cipher:
-        return None
-    try:
-        decrypted = cipher.decrypt(encrypted_data.encode("utf-8"))
-        return json.loads(decrypted.decode("utf-8"))
-    except Exception:
-        return None
-
-
-def encrypt_response_data(
-    data: Dict[str, Any],
-    client_secret: str | None = None,
-) -> Optional[str]:
-    """加密响应数据"""
-    cipher = _build_cipher(client_secret or CLIENT_SECRET)
-    if not cipher:
-        return None
-    try:
-        json_str = json.dumps(data, ensure_ascii=False, separators=(",", ":"))
-        return cipher.encrypt(json_str.encode("utf-8")).decode("utf-8")
-    except Exception as e:
-        logger.error(f"加密失败: {e}")
-        return None
-
-
-def collect_client_secrets(db: Session) -> list[str]:
-    """收集可用于心跳加解密的 client_secret（默认产品读 CLIENT_SECRET，其余读产品表）。"""
-    from app.product_utils import client_secret_for_product
-
-    seen: set[str] = set()
-    secrets: list[str] = []
-
-    def add(value: str | None) -> None:
-        secret = (value or "").strip()
-        if secret and secret not in seen:
-            seen.add(secret)
-            secrets.append(secret)
-
-    for product in db.query(Product).all():
-        add(client_secret_for_product(product))
-    return secrets
-
-
-def try_decrypt_heartbeat(
-    db: Session, encrypted_data: str
-) -> tuple[Optional[Dict[str, Any]], str]:
-    """用 client_secret 逐一尝试解密；software_name 在加密载荷内。"""
-    for client_secret in collect_client_secrets(db):
-        data = decrypt_request_data(encrypted_data, client_secret)
-        if data:
-            return data, client_secret
-    return None, ""
 
 
 pwd_context = CryptContext(schemes=["sha256_crypt"], deprecated="auto")
