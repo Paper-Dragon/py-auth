@@ -7,13 +7,21 @@ import urllib.request
 from dataclasses import dataclass
 from typing import Any
 
+import segno
+
 logger = logging.getLogger(__name__)
 
 EPAY_PAY_TYPES = frozenset({"alipay", "wxpay", "qqpay"})
-SIGN_MODE_DIRECT = "direct"
-SIGN_MODE_WITH_KEY = "with_key"
+ORDER_MODE_MAPI = "mapi"
+ORDER_MODE_SUBMIT = "submit"
+EPAY_ORDER_MODES = frozenset({ORDER_MODE_MAPI, ORDER_MODE_SUBMIT})
 EPAY_TEST_PRODUCT_KEY = "__epay_test__"
 MAPI_SUCCESS_CODES = {1, "1", 200, "200"}
+
+# mapi.php 返回的支付模式
+PAY_MODE_REDIRECT = "redirect"  # 跳转到支付页（alipay 等返回 payurl）
+PAY_MODE_FORM = "form"          # 表单自动提交（submit.php）
+PAY_MODE_QRCODE = "qrcode"      # 扫码支付（wxpay/qqpay 返回 qrcode/code_url）
 
 
 @dataclass
@@ -22,10 +30,23 @@ class MapiResult:
     pay_url: str | None = None
     submit_action: str | None = None
     form_fields: dict[str, str] | None = None
+    qr_content: str | None = None
+    qr_image: str | None = None
     raw: dict[str, Any] | None = None
 
 
-def epay_sign(params: dict[str, Any], merchant_key: str, *, sign_mode: str = SIGN_MODE_DIRECT) -> str:
+def _is_http_url(value: str) -> bool:
+    return value.startswith("http://") or value.startswith("https://")
+
+
+def build_qr_data_uri(content: str) -> str:
+    """将二维码内容编码为可直接用于 <img src> 的 SVG data URI。"""
+    qr = segno.make(content, error="m")
+    return qr.svg_data_uri(scale=6, border=2)
+
+
+def epay_sign(params: dict[str, Any], merchant_key: str) -> str:
+    """易支付签名：参数按 ASCII 排序拼接 key=value（剔除 sign/sign_type/空值），末尾接密钥后 MD5。"""
     items: list[str] = []
     for key in sorted(params.keys()):
         if key in ("sign", "sign_type"):
@@ -35,18 +56,15 @@ def epay_sign(params: dict[str, Any], merchant_key: str, *, sign_mode: str = SIG
             continue
         items.append(f"{key}={value}")
     sign_str = "&".join(items)
-    if sign_mode == SIGN_MODE_WITH_KEY:
-        raw = f"{sign_str}&key={merchant_key}" if sign_str else f"key={merchant_key}"
-    else:
-        raw = sign_str + merchant_key
+    raw = sign_str + merchant_key
     return hashlib.md5(raw.encode("utf-8")).hexdigest()
 
 
-def epay_verify(params: dict[str, Any], merchant_key: str, *, sign_mode: str = SIGN_MODE_DIRECT) -> bool:
+def epay_verify(params: dict[str, Any], merchant_key: str) -> bool:
     received = str(params.get("sign", "")).lower()
     if not received:
         return False
-    expected = epay_sign(params, merchant_key, sign_mode=sign_mode)
+    expected = epay_sign(params, merchant_key)
     return received == expected
 
 
@@ -61,7 +79,6 @@ def build_order_params(
     name: str,
     money: str,
     sitename: str = "",
-    sign_mode: str = SIGN_MODE_DIRECT,
 ) -> dict[str, str]:
     if pay_type not in EPAY_PAY_TYPES:
         raise ValueError(f"不支持的支付方式: {pay_type}")
@@ -80,7 +97,7 @@ def build_order_params(
     if site:
         payload["sitename"] = site[:127]
 
-    payload["sign"] = epay_sign(payload, merchant_key, sign_mode=sign_mode)
+    payload["sign"] = epay_sign(payload, merchant_key)
     return payload
 
 
@@ -167,7 +184,6 @@ def request_mapi_pay(
     params: dict[str, str],
     *,
     merchant_key: str,
-    sign_mode: str = SIGN_MODE_DIRECT,
     sitename: str = "",
 ) -> MapiResult:
     signed = build_order_params(
@@ -180,7 +196,6 @@ def request_mapi_pay(
         name=params["name"],
         money=params["money"],
         sitename=sitename,
-        sign_mode=sign_mode,
     )
     endpoint = build_mapi_endpoint(api_url)
     try:
@@ -195,11 +210,45 @@ def request_mapi_pay(
         message = result.get("msg") or result.get("message") or "易支付下单失败"
         raise ValueError(str(message))
 
-    pay_url = result.get("payurl") or result.get("qrcode") or result.get("code_url") or result.get("url")
+    # payurl：可直接跳转的收银台页面（支付宝等）
+    pay_url = result.get("payurl") or result.get("url")
     if pay_url:
-        return MapiResult(pay_mode="redirect", pay_url=str(pay_url), raw=result)
+        return MapiResult(pay_mode=PAY_MODE_REDIRECT, pay_url=str(pay_url), raw=result)
 
-    return build_submit_pay(api_url, signed, raw=result)
+    # qrcode：原始支付串，需要前端渲染成二维码供扫码（微信/QQ）
+    qrcode = result.get("qrcode")
+    code_url = result.get("code_url") or result.get("img")
+    if qrcode:
+        qr_content = str(qrcode)
+        # code_url 若是现成的二维码图片地址则直接用，否则本地按内容生成
+        if code_url and _is_http_url(str(code_url)):
+            qr_image = str(code_url)
+        else:
+            qr_image = build_qr_data_uri(qr_content)
+        return MapiResult(
+            pay_mode=PAY_MODE_QRCODE,
+            qr_content=qr_content,
+            qr_image=qr_image,
+            raw=result,
+        )
+
+    # 仅返回二维码图片地址（无原始串）
+    if code_url:
+        if _is_http_url(str(code_url)):
+            return MapiResult(pay_mode=PAY_MODE_QRCODE, qr_image=str(code_url), raw=result)
+        return MapiResult(
+            pay_mode=PAY_MODE_QRCODE,
+            qr_content=str(code_url),
+            qr_image=build_qr_data_uri(str(code_url)),
+            raw=result,
+        )
+
+    # urlscheme：唤起 App 的 scheme，桌面浏览器无法跳转，仅作兜底
+    urlscheme = result.get("urlscheme")
+    if urlscheme:
+        return MapiResult(pay_mode=PAY_MODE_REDIRECT, pay_url=str(urlscheme), raw=result)
+
+    raise ValueError("易支付接口未返回支付信息")
 
 
 def build_submit_pay(
@@ -213,7 +262,7 @@ def build_submit_pay(
     fields["sign"] = signed_params["sign"]
     fields["sign_type"] = signed_params.get("sign_type", "MD5")
     return MapiResult(
-        pay_mode="form",
+        pay_mode=PAY_MODE_FORM,
         submit_action=action,
         form_fields=fields,
         raw=raw,
@@ -232,9 +281,23 @@ def create_pay_result(
     name: str,
     money: str,
     sitename: str = "",
-    sign_mode: str = SIGN_MODE_DIRECT,
-    prefer_mapi: bool = True,
+    order_mode: str = ORDER_MODE_MAPI,
 ) -> MapiResult:
+    """按 order_mode 选择下单方式：mapi（API 接口）或 submit（页面跳转），两者互相独立、互不回退。"""
+    if order_mode == ORDER_MODE_SUBMIT:
+        signed = build_order_params(
+            pid=pid,
+            merchant_key=merchant_key,
+            pay_type=pay_type,
+            out_trade_no=out_trade_no,
+            notify_url=notify_url,
+            return_url=return_url,
+            name=name,
+            money=money,
+            sitename=sitename,
+        )
+        return build_submit_pay(api_url, signed)
+
     base = {
         "pid": str(pid),
         "type": pay_type,
@@ -244,32 +307,12 @@ def create_pay_result(
         "name": name,
         "money": money,
     }
-    signed = build_order_params(
-        pid=pid,
+    return request_mapi_pay(
+        api_url,
+        base,
         merchant_key=merchant_key,
-        pay_type=pay_type,
-        out_trade_no=out_trade_no,
-        notify_url=notify_url,
-        return_url=return_url,
-        name=name,
-        money=money,
         sitename=sitename,
-        sign_mode=sign_mode,
     )
-
-    if prefer_mapi:
-        try:
-            return request_mapi_pay(
-                api_url,
-                base,
-                merchant_key=merchant_key,
-                sign_mode=sign_mode,
-                sitename=sitename,
-            )
-        except Exception as exc:
-            logger.warning("易支付 mapi 下单失败，回退 submit 表单: %s", exc)
-
-    return build_submit_pay(api_url, signed)
 
 
 def extract_notify_params(request_method: str, query_params: dict[str, str], form_params: dict[str, str]) -> dict[str, str]:

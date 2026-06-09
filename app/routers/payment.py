@@ -22,7 +22,7 @@ from app.epay import (
     query_merchant,
     query_order,
 )
-from app.models import AUTH_MODE_HYBRID, AUTH_MODE_PAID, Device, Order, Product, User
+from app.models import AUTH_MODE_PAID, Device, Order, Product, User
 from app.product_resolve import get_product_by_key
 from app.product_utils import pay_type_from_product, plan_from_product, software_name_for_product
 from app.payment_config import (
@@ -31,7 +31,6 @@ from app.payment_config import (
     ensure_pay_type_enabled,
     get_enabled_channels,
     load_epay_config,
-    mask_epay_config,
     resolve_notify_url,
     resolve_pay_url,
     resolve_return_url,
@@ -90,7 +89,7 @@ def _product_price(product: Product) -> str:
 
 
 def _is_payable_product(product: Product) -> bool:
-    return product.is_active and product.auth_mode in (AUTH_MODE_PAID, AUTH_MODE_HYBRID)
+    return product.is_active and product.auth_mode == AUTH_MODE_PAID
 
 
 def _payment_device_context(db: Session, device_id: str) -> PaymentDeviceContextResponse:
@@ -187,17 +186,17 @@ def _is_test_order(order: Order) -> bool:
 
 
 def _build_epay_config_response(config: dict, base: str) -> EpayConfigResponse:
-    masked = mask_epay_config(config)
+    key = str(config.get("key") or "")
     return EpayConfigResponse(
-        enabled=masked["enabled"],
-        api_url=masked.get("api_url", ""),
-        pid=masked.get("pid", ""),
-        key=masked.get("key", ""),
-        key_configured=masked.get("key_configured", False),
-        notify_url=masked.get("notify_url", ""),
-        return_url=masked.get("return_url", ""),
-        sign_mode=str(masked.get("sign_mode", "direct") or "direct"),
-        sitename=str(masked.get("sitename", "") or ""),
+        enabled=bool(config.get("enabled")),
+        api_url=config.get("api_url", ""),
+        pid=config.get("pid", ""),
+        key=key,
+        key_configured=bool(key),
+        notify_url=config.get("notify_url", ""),
+        return_url=config.get("return_url", ""),
+        order_mode=str(config.get("order_mode", "mapi") or "mapi"),
+        sitename=str(config.get("sitename", "") or ""),
         enabled_channels=get_enabled_channels(config),
         resolved_notify_url=resolve_notify_url(config, base),
         resolved_return_url=resolve_return_url(config, base),
@@ -219,11 +218,11 @@ def _epay_amount_matches(order: Order, callback_money: str | None, *, strict: bo
         return False
 
 
-def _epay_params_signed(params: dict[str, str], merchant_key: str, sign_mode: str) -> bool:
+def _epay_params_signed(params: dict[str, str], merchant_key: str) -> bool:
     return bool(
         merchant_key
         and params.get("sign")
-        and epay_verify(params, merchant_key, sign_mode=sign_mode)
+        and epay_verify(params, merchant_key)
     )
 
 
@@ -256,6 +255,8 @@ def _to_order_response(order: Order, pay_result: MapiResult | None = None) -> Pa
         response.pay_url = pay_result.pay_url
         response.submit_action = pay_result.submit_action
         response.form_fields = pay_result.form_fields
+        response.qr_content = pay_result.qr_content
+        response.qr_image = pay_result.qr_image
     return response
 
 
@@ -390,8 +391,7 @@ def _create_and_submit_order(
         name=product_name,
         money=money,
         sitename=epay.get("sitename", ""),
-        sign_mode=epay.get("sign_mode", "direct"),
-        prefer_mapi=True,
+        order_mode=epay.get("order_mode", "mapi"),
     )
     return order, pay_result
 
@@ -423,7 +423,7 @@ async def _handle_epay_notify(request: Request, db: Session) -> PlainTextRespons
         logger.warning("易支付回调时配置不可用")
         return PlainTextResponse("fail")
 
-    if not epay_verify(params, epay["key"], sign_mode=epay.get("sign_mode", "direct")):
+    if not epay_verify(params, epay["key"]):
         logger.warning("易支付回调验签失败: %s", out_trade_no)
         return PlainTextResponse("fail")
 
@@ -541,8 +541,7 @@ async def test_epay_connection(
             name="渠道连接测试",
             money="0.01",
             sitename=epay.get("sitename", ""),
-            sign_mode=epay.get("sign_mode", "direct"),
-            prefer_mapi=True,
+            order_mode=epay.get("order_mode", "mapi"),
         )
         return EpayTestConnectionResponse(
             success=True,
@@ -814,9 +813,8 @@ async def epay_return(
 
     config = load_epay_config(db)
     merchant_key = str(config.get("key") or "")
-    sign_mode = str(config.get("sign_mode", "direct") or "direct")
     has_sign = bool(params.get("sign"))
-    signed = _epay_params_signed(params, merchant_key, sign_mode)
+    signed = _epay_params_signed(params, merchant_key)
     if merchant_key and has_sign and not signed:
         raise HTTPException(status_code=400, detail="支付返回验签失败")
 

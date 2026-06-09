@@ -116,7 +116,7 @@ state_{serverHash12}_default.dat
 | `cache_remaining_time` | **本地缓存**剩余有效时间（如 `6天23小时59分钟`），离线时仍可信任缓存的倒计时 |
 | `cached_at` / `cached_at_readable` | 最近一次成功在线校验并写入缓存的时间 |
 
-**注意**：`cache_remaining_time` 不是服务端授权到期时间。试用天数、付费授权等业务期限由服务端心跳返回的 `message` / `plan` 决定，客户端不会将其换算为倒计时写入该字段。
+**注意**：`cache_remaining_time` 不是服务端授权到期时间。付费授权等业务期限由服务端心跳返回的 `message` / `plan` 决定，客户端不会将其换算为倒计时写入该字段。
 
 ## 8. 多客户端共享状态文件
 

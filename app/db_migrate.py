@@ -47,8 +47,34 @@ def migrate_schema() -> None:
 
     _backfill_product_software_names()
     _backfill_product_client_secrets()
+    _migrate_legacy_auth_modes()
     ensure_default_product()
     _migrate_devices_product_key()
+
+
+def _migrate_legacy_auth_modes() -> None:
+    """已废弃的 trial/hybrid 授权模式统一迁移为 manual（手动审核）。"""
+    from app.models import AUTH_MODE_MANUAL, Product
+
+    db = SessionLocal()
+    try:
+        products = (
+            db.query(Product)
+            .filter(Product.auth_mode.in_(("trial", "hybrid")))
+            .all()
+        )
+        if not products:
+            return
+        for product in products:
+            product.auth_mode = AUTH_MODE_MANUAL
+            product.config = {}
+        db.commit()
+        logger.info("已将 %s 个 trial/hybrid 产品迁移为 manual 模式", len(products))
+    except Exception as exc:
+        db.rollback()
+        logger.error("迁移废弃授权模式失败: %s", exc)
+    finally:
+        db.close()
 
 
 def _backfill_product_software_names() -> None:
@@ -147,17 +173,19 @@ def _backfill_device_product_keys() -> None:
         db.close()
 
 
-DEFAULT_PRODUCT_DISPLAY_NAME = "未登记产品（默认）"
-
-
 def _repair_default_product_row(product) -> bool:
-    from app.product_utils import DEFAULT_PRODUCT_SOFTWARE_NAME
+    from app.product_utils import (
+        DEFAULT_PRODUCT_DISPLAY_NAME,
+        DEFAULT_PRODUCT_SOFTWARE_NAME,
+        LEGACY_DEFAULT_PRODUCT_DISPLAY_NAME,
+    )
 
     changed = False
     if (product.software_name or "").strip() != DEFAULT_PRODUCT_SOFTWARE_NAME:
         product.software_name = DEFAULT_PRODUCT_SOFTWARE_NAME
         changed = True
-    if not (product.display_name or "").strip():
+    display_name = (product.display_name or "").strip()
+    if not display_name or display_name == LEGACY_DEFAULT_PRODUCT_DISPLAY_NAME:
         product.display_name = DEFAULT_PRODUCT_DISPLAY_NAME
         changed = True
     if (product.client_secret or "").strip():
@@ -169,7 +197,11 @@ def _repair_default_product_row(product) -> bool:
 def ensure_default_product() -> None:
     from app.coerce import coerce_boolish
     from app.models import AUTH_MODE_MANUAL, AUTH_MODE_OPEN, Config, Product
-    from app.product_utils import DEFAULT_PRODUCT_SOFTWARE_NAME, generate_product_key
+    from app.product_utils import (
+        DEFAULT_PRODUCT_DISPLAY_NAME,
+        DEFAULT_PRODUCT_SOFTWARE_NAME,
+        generate_product_key,
+    )
 
     db = SessionLocal()
     try:

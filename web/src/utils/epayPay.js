@@ -27,5 +27,9 @@ export function redirectToEpayOrder(order) {
     return
   }
 
+  if (order.pay_mode === 'qrcode') {
+    throw new Error('该订单为扫码支付，需展示二维码而非跳转')
+  }
+
   throw new Error('未获取到支付跳转信息')
 }

@@ -56,14 +56,14 @@
             />
           </el-select>
           <el-select v-model="filterAuthStatus" style="width: 120px" @change="applyFilters">
-            <el-option label="全部状态" value="" />
+            <el-option label="全部授权" value="" />
             <el-option label="已授权" value="authorized" />
             <el-option label="未授权" value="unauthorized" />
           </el-select>
           <el-input
             v-model="filterKeyword"
             clearable
-            placeholder="搜索设备 ID / 软件名称 / 备注"
+            placeholder="搜索设备 ID / 所属产品 / 备注"
             style="width: 240px"
             @keyup.enter="applyFilters"
             @clear="applyFilters"
@@ -79,14 +79,17 @@
           :loading="loading"
           stripe
           border
-          class="admin-data-table desktop-table"
+          fit
+          style="width: 100%"
+          class="admin-data-table desktop-table device-data-table"
           empty-text="暂无设备"
+          table-layout="fixed"
           @sort-change="handleSortChange"
           @selection-change="handleSelectionChange"
           :default-sort="{ prop: sortBy, order: sortOrder === 'asc' ? 'ascending' : 'descending' }"
         >
           <el-table-column type="selection" width="48" :selectable="rowSelectable" />
-          <el-table-column prop="device_id" label="设备ID" min-width="128">
+          <el-table-column prop="device_id" label="设备ID" min-width="108" show-overflow-tooltip>
             <template #default="{ row }">
               <code
                 class="device-id device-id-toggle"
@@ -95,66 +98,73 @@
               >{{ expandedDeviceIds.has(row.device_id) ? row.device_id : maskDeviceId(row.device_id) }}</code>
             </template>
           </el-table-column>
-          <el-table-column prop="software_name" label="软件名称" min-width="140" sortable="custom" show-overflow-tooltip>
+          <el-table-column prop="product_display_name" label="所属产品" min-width="140" show-overflow-tooltip>
             <template #default="{ row }">
               <div class="product-cell">
-                <span class="product-name">{{ row.software_name || '—' }}</span>
-                <el-tag
-                  v-if="row.product_display_name && !row.product_known"
-                  size="small"
-                  type="info"
-                >默认</el-tag>
+                <span class="product-name">{{ productLabel(row) }}</span>
+                <span v-if="showSoftwareName(row)" class="product-software">{{ row.software_name }}</span>
               </div>
             </template>
           </el-table-column>
-          <el-table-column prop="device_info" label="详情" width="64" align="center">
+          <el-table-column prop="plan" label="授权档位" min-width="124" align="center">
+            <template #default="{ row }">
+              <div v-if="row.plan_label" class="plan-cell">
+                <el-tag :type="row.plan_tag || 'info'" size="small">{{ row.plan_label }}</el-tag>
+                <span v-if="row.plan_hint" class="plan-hint-text">{{ row.plan_hint }}</span>
+              </div>
+              <span v-else class="text-muted">—</span>
+            </template>
+          </el-table-column>
+          <el-table-column prop="device_info" label="设备信息" min-width="72" align="center">
             <template #default="{ row }">
               <el-button v-if="row.device_info" type="primary" link size="small" @click="showDeviceInfo(row)">查看</el-button>
               <span v-else>-</span>
             </template>
           </el-table-column>
-          <el-table-column prop="remark" label="备注" min-width="100" class-name="remark-cell">
+          <el-table-column prop="remark" label="备注" min-width="88" class-name="remark-cell">
             <template #default="{ row }">
               <el-input v-model="row._remarkValue" size="small" placeholder="备注" @blur="saveRemark(row)" @keyup.enter="saveRemark(row)" />
             </template>
           </el-table-column>
-          <el-table-column prop="is_authorized" label="状态" width="76" align="center">
+          <el-table-column prop="is_authorized" label="授权状态" min-width="84" align="center">
             <template #default="{ row }">
-              <el-tag :type="row.is_authorized ? 'success' : 'danger'" size="small">
-                {{ row.is_authorized ? '已授权' : '未授权' }}
-              </el-tag>
+              <el-tooltip :content="row.auth_message" placement="top" :disabled="!row.auth_message">
+                <el-tag :type="row.is_authorized ? 'success' : 'danger'" size="small">
+                  {{ row.is_authorized ? '已授权' : '未授权' }}
+                </el-tag>
+              </el-tooltip>
             </template>
           </el-table-column>
-          <el-table-column prop="created_at" min-width="148" sortable="custom" show-overflow-tooltip>
+          <el-table-column prop="created_at" min-width="112" sortable="custom" show-overflow-tooltip>
             <template #header>
-              <el-tooltip content="设备首次请求后不变" placement="top">
-                <span class="col-head-tip">注册时间</span>
+              <el-tooltip content="设备首次接入后不变" placement="top">
+                <span class="col-head-tip">首次注册</span>
               </el-tooltip>
             </template>
             <template #default="{ row }">{{ formatDate(row.created_at) }}</template>
           </el-table-column>
-          <el-table-column prop="updated_at" min-width="148" sortable="custom" show-overflow-tooltip>
+          <el-table-column prop="updated_at" min-width="112" sortable="custom" show-overflow-tooltip>
             <template #header>
-              <el-tooltip content="管理员改授权/备注或设备信息变更" placement="top">
-                <span class="col-head-tip">管理变更追踪</span>
+              <el-tooltip content="授权、备注或设备信息变更时刷新" placement="top">
+                <span class="col-head-tip">最近更新</span>
               </el-tooltip>
             </template>
             <template #default="{ row }">{{ formatDate(row.updated_at) }}</template>
           </el-table-column>
-          <el-table-column prop="last_check" min-width="136" sortable="custom" show-overflow-tooltip>
+          <el-table-column prop="last_check" min-width="112" sortable="custom" show-overflow-tooltip>
             <template #header>
-              <el-tooltip content="每次成功心跳/授权校验" placement="top">
-                <span class="col-head-tip">活跃度</span>
+              <el-tooltip content="最后一次心跳或授权校验" placement="top">
+                <span class="col-head-tip">最近活跃</span>
               </el-tooltip>
             </template>
             <template #default="{ row }">{{ formatDate(row.last_check) }}</template>
           </el-table-column>
-          <el-table-column label="操作" min-width="192" fixed="right" align="center">
+          <el-table-column label="操作" min-width="132" align="center" class-name="op-cell">
             <template #default="{ row }">
               <div class="op-btns">
-                <el-button v-if="row.is_authorized" type="warning" size="small" @click="toggleAuth(row, false)" :loading="row._updating">取消授权</el-button>
-                <el-button v-else type="success" size="small" @click="toggleAuth(row, true)" :loading="row._updating">授权</el-button>
-                <el-button type="danger" size="small" @click="deleteDevice(row)" :loading="row._updating">删除设备</el-button>
+                <el-button v-if="row.is_authorized" type="warning" size="small" @click="toggleAuth(row, false)" :loading="row._updating">封禁</el-button>
+                <el-button v-else type="success" size="small" @click="toggleAuth(row, true)" :loading="row._updating">解封</el-button>
+                <el-button type="danger" size="small" @click="deleteDevice(row)" :loading="row._updating">删除</el-button>
               </div>
             </template>
           </el-table-column>
@@ -188,31 +198,37 @@
                 </el-tag>
               </div>
               <div class="card-body">
-                <div class="info-row" v-if="device.software_name">
-                  <span class="label">软件：</span>
+                <div class="info-row">
+                  <span class="label">所属产品：</span>
+                  <span class="value">{{ productLabel(device) }}</span>
+                </div>
+                <div class="info-row" v-if="showSoftwareName(device)">
+                  <span class="label">客户端软件名：</span>
                   <span class="value">{{ device.software_name }}</span>
                 </div>
-                <div
-                  v-if="device.product_display_name && !device.product_known"
-                  class="info-row"
-                >
-                  <span class="label">产品：</span>
-                  <el-tag size="small" type="info">默认</el-tag>
+                <div class="info-row">
+                  <span class="label">授权模式：</span>
+                  <span class="value">{{ authModeLabel(device.product_auth_mode) }}</span>
+                </div>
+                <div class="info-row" v-if="device.plan_label">
+                  <span class="label">授权档位：</span>
+                  <el-tag :type="device.plan_tag || 'info'" size="small">{{ device.plan_label }}</el-tag>
+                  <span v-if="device.plan_hint" class="plan-hint-text">{{ device.plan_hint }}</span>
                 </div>
                 <div class="info-row">
-                  <span class="label">注册时间：</span>
+                  <span class="label">首次注册：</span>
                   <span class="value">{{ formatDate(device.created_at) }}</span>
                 </div>
                 <div class="info-row" v-if="device.updated_at">
-                  <span class="label">管理变更追踪：</span>
+                  <span class="label">最近更新：</span>
                   <span class="value">{{ formatDate(device.updated_at) }}</span>
                 </div>
                 <div class="info-row" v-if="device.last_check">
-                  <span class="label">活跃度：</span>
+                  <span class="label">最近活跃：</span>
                   <span class="value">{{ formatDate(device.last_check) }}</span>
                 </div>
                 <div class="info-row" v-if="device.device_info">
-                  <el-button type="primary" link size="small" @click="showDeviceInfo(device)">查看设备详情</el-button>
+                  <el-button type="primary" link size="small" @click="showDeviceInfo(device)">查看设备信息</el-button>
                 </div>
                 <div class="info-row">
                   <span class="label">备注：</span>
@@ -220,8 +236,8 @@
                 </div>
               </div>
               <div class="card-footer">
-                <el-button v-if="device.is_authorized" type="warning" size="small" @click="toggleAuth(device, false)" :loading="device._updating">取消授权</el-button>
-                <el-button v-else type="success" size="small" @click="toggleAuth(device, true)" :loading="device._updating">授权</el-button>
+                <el-button v-if="device.is_authorized" type="warning" size="small" @click="toggleAuth(device, false)" :loading="device._updating">封禁</el-button>
+                <el-button v-else type="success" size="small" @click="toggleAuth(device, true)" :loading="device._updating">解封</el-button>
                 <el-button type="danger" size="small" @click="deleteDevice(device)" :loading="device._updating">删除</el-button>
               </div>
             </div>
@@ -243,7 +259,7 @@
       </div>
 
       
-      <el-dialog v-model="deviceInfoVisible" title="设备详情" width="90%" style="max-width: 640px;">
+      <el-dialog v-model="deviceInfoVisible" title="设备信息" width="90%" style="max-width: 640px;">
         <pre v-if="deviceInfoJsonText" class="device-info-json">{{ deviceInfoJsonText }}</pre>
         <el-empty v-else description="暂无 device_info" />
       </el-dialog>
@@ -269,10 +285,12 @@ import { Refresh, Box, CircleCheck, CircleClose } from '@element-plus/icons-vue'
 import { ElMessage, ElMessageBox } from 'element-plus'
 import { api, notifySessionExpired, SESSION_EXPIRED_MESSAGE } from '../api'
 import { reportApiError } from '../utils/errorFeedback'
+import { authModeLabel as sharedAuthModeLabel } from '../constants/authModes'
 const devices = ref([])
 const expandedDeviceIds = ref(new Set())
 const tableRef = ref(null)
 const loading = ref(false)
+let tableResizeObserver = null
 const bulkDeleting = ref(false)
 const selectedIds = ref(new Set())
 let syncingTableSelection = false
@@ -337,6 +355,19 @@ const pendingWsRequests = new Map()
 const authorizedCount = computed(() => summary.value.authorized ?? 0)
 const unauthorizedCount = computed(() => summary.value.unauthorized ?? 0)
 
+const authModeLabel = (mode) => sharedAuthModeLabel(mode, '未绑定产品')
+
+const productLabel = (row) => {
+  if (row?.product_display_name) return row.product_display_name
+  if (row?.product_key) return row.product_key
+  return '未绑定'
+}
+
+const showSoftwareName = (row) => {
+  const name = (row?.software_name || '').trim()
+  return !!name && name !== productLabel(row)
+}
+
 const maskDeviceId = (id) => {
   const value = String(id || '')
   if (value.length <= 14) return value
@@ -372,6 +403,7 @@ const applyDevicesPayload = (data) => {
     _remarkValue: d.remark || '',
     _updating: false
   }))
+  nextTick(() => tableRef.value?.doLayout())
 }
 
 const rejectPendingWsRequests = (message) => {
@@ -595,7 +627,7 @@ const toggleAuth = async (device, authorize) => {
       _originalRemark: updatedDevice.remark || '',
       _remarkValue: updatedDevice.remark || ''
     })
-    ElMessage.success(authorize ? '已授权' : '已取消授权')
+    ElMessage.success(authorize ? '已解封' : '已封禁')
   } catch (e) {
     reportApiError(e, '操作失败')
   } finally {
@@ -676,10 +708,20 @@ onMounted(() => {
   document.addEventListener('visibilitychange', onVisibilityChange)
   void loadProductOptions()
   connectWebSocket()
+  nextTick(() => {
+    const section = document.querySelector('.device-section')
+    if (!section || !tableRef.value) return
+    tableResizeObserver = new ResizeObserver(() => {
+      tableRef.value?.doLayout()
+    })
+    tableResizeObserver.observe(section)
+  })
 })
 
 onUnmounted(() => {
   document.removeEventListener('visibilitychange', onVisibilityChange)
+  tableResizeObserver?.disconnect()
+  tableResizeObserver = null
   reconnectEnabled = false
   pendingDevicesReload = false
   rejectPendingWsRequests('页面已关闭')
@@ -690,12 +732,17 @@ onUnmounted(() => {
 <style scoped>
 .admin-panel {
   width: 100%;
+  min-width: 0;
+  box-sizing: border-box;
 }
 
 
 .content {
-  max-width: 1400px;
-  margin: 0 auto;
+  width: 100%;
+  max-width: none;
+  margin: 0;
+  min-width: 0;
+  box-sizing: border-box;
 }
 
 
@@ -752,6 +799,34 @@ onUnmounted(() => {
   border-radius: 10px;
   padding: 16px;
   box-shadow: 0 2px 8px rgba(0,0,0,0.06);
+  width: 100%;
+  min-width: 0;
+  box-sizing: border-box;
+}
+
+.device-section :deep(.device-data-table.el-table) {
+  width: 100% !important;
+}
+
+.device-section :deep(.device-data-table .el-table__inner-wrapper),
+.device-section :deep(.device-data-table .el-table__header-wrapper),
+.device-section :deep(.device-data-table .el-table__body-wrapper),
+.device-section :deep(.device-data-table .el-table__header-wrapper table),
+.device-section :deep(.device-data-table .el-table__body-wrapper table) {
+  width: 100% !important;
+}
+
+.device-section :deep(.device-data-table .el-table__header-wrapper th.el-table__cell .cell),
+.device-section :deep(.device-data-table .el-table__body-wrapper td.el-table__cell .cell) {
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.device-section :deep(.device-data-table td.remark-cell .cell),
+.device-section :deep(.device-data-table td.op-cell .cell) {
+  overflow: visible;
+  text-overflow: clip;
 }
 
 .section-header {
@@ -819,23 +894,49 @@ onUnmounted(() => {
 
 .product-cell {
   display: flex;
-  flex-direction: row;
-  align-items: center;
+  align-items: baseline;
   gap: 6px;
   min-width: 0;
+  overflow: hidden;
 }
 
 .product-name {
   font-size: var(--table-font-size);
   color: var(--color-text-primary);
+  flex-shrink: 0;
+  max-width: 100%;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.product-software {
+  font-size: 12px;
+  color: var(--color-text-tertiary);
   min-width: 0;
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
 }
 
-.product-cell .el-tag {
-  flex-shrink: 0;
+.plan-cell {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 6px;
+  min-width: 0;
+}
+
+.plan-hint-text {
+  font-size: 12px;
+  color: var(--color-text-tertiary);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.text-muted {
+  color: var(--color-text-tertiary);
 }
 
 .device-section :deep(.remark-cell .cell) {
@@ -854,15 +955,17 @@ onUnmounted(() => {
 }
 
 .op-btns {
-  display: grid;
-  grid-template-columns: repeat(3, minmax(0, 1fr));
+  display: flex;
+  flex-wrap: nowrap;
+  align-items: center;
+  justify-content: center;
   gap: 4px;
 }
 
 .op-btns .el-button {
-  width: 100%;
+  flex: 0 0 auto;
   min-width: 0;
-  padding: 5px 0;
+  padding: 5px 7px;
 }
 
 .pagination {

@@ -15,20 +15,27 @@ class DeviceAuthRequest(BaseModel):
 class DeviceResponse(BaseModel):
     id: int
     device_id: str
+    product_key: Optional[str] = None
     software_name: Optional[str] = None       
     device_info: Optional[Dict[str, Any]] = None                                      
     remark: Optional[str]
     is_authorized: bool
     product_display_name: Optional[str] = None
     product_known: bool = False
-    created_at: datetime = Field(description="注册时间：设备首次请求后不变")
+    product_auth_mode: Optional[str] = None
+    plan: Optional[str] = None
+    plan_label: Optional[str] = None
+    plan_hint: Optional[str] = None
+    plan_tag: Optional[str] = None
+    auth_message: Optional[str] = None
+    created_at: datetime = Field(description="首次注册：设备首次接入后不变")
     updated_at: Optional[datetime] = Field(
         default=None,
-        description="管理变更追踪：管理员改授权/备注或设备信息（software_name、device_info）变更时刷新",
+        description="最近更新：授权、备注或设备信息变更时刷新",
     )
     last_check: Optional[datetime] = Field(
         default=None,
-        description="活跃度：每次成功心跳/授权校验时刷新",
+        description="最近活跃：最后一次心跳或授权校验时刷新",
     )
 
     class Config:
@@ -132,7 +139,7 @@ class EpayConfigUpdate(BaseModel):
     key: Optional[str] = None
     notify_url: Optional[str] = None
     return_url: Optional[str] = None
-    sign_mode: Optional[str] = None
+    order_mode: Optional[str] = None
     sitename: Optional[str] = None
     enabled_channels: Optional[list[str]] = None
 
@@ -145,7 +152,7 @@ class EpayConfigResponse(BaseModel):
     key_configured: bool
     notify_url: str
     return_url: str
-    sign_mode: str = "direct"
+    order_mode: str = "mapi"
     sitename: str = ""
     enabled_channels: list[str] = Field(default_factory=lambda: ["alipay", "wxpay", "qqpay"])
     resolved_notify_url: str = ""
@@ -210,6 +217,8 @@ class PaymentOrderResponse(BaseModel):
     pay_url: Optional[str] = None
     submit_action: Optional[str] = None
     form_fields: Optional[Dict[str, str]] = None
+    qr_content: Optional[str] = None
+    qr_image: Optional[str] = None
     created_at: datetime
     paid_at: Optional[datetime] = None
 

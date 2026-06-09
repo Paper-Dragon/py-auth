@@ -18,7 +18,7 @@ DEFAULT_EPAY_CONFIG: dict[str, Any] = {
     "key": "",
     "notify_url": "",
     "return_url": "",
-    "sign_mode": "direct",
+    "order_mode": "mapi",
     "sitename": "",
     "enabled_channels": list(ALL_EPAY_CHANNELS),
 }
@@ -94,7 +94,7 @@ def save_epay_config(db: Session, updates: dict[str, Any], existing: dict[str, A
     if row and isinstance(row.value, dict):
         current.update(row.value)
 
-    for field in ("enabled", "api_url", "pid", "notify_url", "return_url", "sign_mode", "sitename"):
+    for field in ("enabled", "api_url", "pid", "notify_url", "return_url", "order_mode", "sitename"):
         if field in updates and updates[field] is not None:
             current[field] = updates[field]
 
@@ -111,8 +111,8 @@ def save_epay_config(db: Session, updates: dict[str, Any], existing: dict[str, A
     current["pid"] = str(current.get("pid", "")).strip()
     current["notify_url"] = str(current.get("notify_url", "")).strip()
     current["return_url"] = str(current.get("return_url", "")).strip()
-    sign_mode = str(current.get("sign_mode", "direct")).strip() or "direct"
-    current["sign_mode"] = sign_mode if sign_mode in ("direct", "with_key") else "direct"
+    order_mode = str(current.get("order_mode", "mapi")).strip() or "mapi"
+    current["order_mode"] = order_mode if order_mode in ("mapi", "submit") else "mapi"
     current["sitename"] = str(current.get("sitename", "")).strip()
     current["enabled_channels"] = normalize_enabled_channels(current.get("enabled_channels"))
 
@@ -124,17 +124,6 @@ def save_epay_config(db: Session, updates: dict[str, Any], existing: dict[str, A
     else:
         db.add(Config(key=EPAY_CONFIG_KEY, value=current))
     return current
-
-
-def mask_epay_config(config: dict[str, Any]) -> dict[str, Any]:
-    masked = deepcopy(config)
-    key = str(masked.get("key") or "")
-    if key:
-        masked["key"] = MASKED_KEY_PLACEHOLDER
-        masked["key_configured"] = True
-    else:
-        masked["key_configured"] = False
-    return masked
 
 
 def _origin_from_url(url: str) -> str:
@@ -229,7 +218,7 @@ def ensure_epay_credentials(
         "key": merchant_key,
         "notify_url": notify_url,
         "return_url": return_url,
-        "sign_mode": str(config.get("sign_mode", "direct")).strip() or "direct",
+        "order_mode": str(config.get("order_mode", "mapi")).strip() or "mapi",
         "sitename": str(config.get("sitename", "")).strip(),
     }
 

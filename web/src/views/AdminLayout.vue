@@ -352,6 +352,12 @@ onMounted(async () => {
   overflow: auto;
 }
 
+.main > * {
+  width: 100%;
+  min-width: 0;
+  box-sizing: border-box;
+}
+
 @media (min-width: 1280px) {
   .main {
     padding: 20px 28px;

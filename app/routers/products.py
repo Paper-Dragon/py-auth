@@ -29,9 +29,7 @@ SOFTWARE_NAME_PATTERN = re.compile(r"^.{2,64}$", re.UNICODE)
 AUTH_MODE_DEFAULT_CONFIG = {
     "open": {},
     "manual": {},
-    "trial": {"trial_days": 7},
     "paid": {"plan_on_paid": "pro", "price": "0.00", "pay_type": "wxpay"},
-    "hybrid": {"plan_on_paid": "pro", "price": "0.00", "pay_type": "wxpay"},
 }
 
 
@@ -48,16 +46,7 @@ def _normalize_config(auth_mode: str, config: dict | None) -> dict:
     base = dict(AUTH_MODE_DEFAULT_CONFIG.get(auth_mode, {}))
     if config:
         base.update(config)
-    if auth_mode == "trial":
-        days = base.get("trial_days", 7)
-        try:
-            days = int(days)
-        except (TypeError, ValueError):
-            raise HTTPException(status_code=400, detail="trial_days 必须是整数")
-        if days < 1 or days > 3650:
-            raise HTTPException(status_code=400, detail="trial_days 必须在 1~3650 之间")
-        base["trial_days"] = days
-    if auth_mode in ("paid", "hybrid"):
+    if auth_mode == "paid":
         plan = str(base.get("plan_on_paid", "pro")).strip() or "pro"
         price = str(base.get("price", "0.00")).strip() or "0.00"
         pay_type = str(base.get("pay_type", "wxpay")).strip().lower() or "wxpay"
@@ -109,7 +98,7 @@ def _to_product_response(product: Product, device_count: int = 0) -> ProductResp
         id=product.id,
         key=product.key,
         software_name=display_software_name(product),
-        display_name=product.display_name,
+        display_name=display_software_name(product),
         auth_mode=product.auth_mode,
         config=product.config,
         is_active=product.is_active,
@@ -136,7 +125,9 @@ async def list_product_options(
         ProductOptionResponse(
             key=product.key,
             software_name=display_software_name(product),
-            display_name=product.display_name or display_software_name(product),
+            display_name=display_software_name(product)
+            if product.is_default
+            else (product.display_name or display_software_name(product)),
             is_active=product.is_active,
         )
         for product in products

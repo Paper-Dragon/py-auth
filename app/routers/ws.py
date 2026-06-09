@@ -149,7 +149,7 @@ async def device_events(websocket: WebSocket):
                         payload = {
                             "type": "device_updated",
                             "request_id": request_id,
-                            "device": serialize_device(device, product_map),
+                            "device": serialize_device(device, product_map, db),
                         }
                         await websocket.send_json(payload)
                         await device_ws_manager.broadcast({

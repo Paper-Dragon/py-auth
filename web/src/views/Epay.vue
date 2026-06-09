@@ -87,11 +87,16 @@
               <div class="section-title">
                 <h3>回调与参数</h3>
               </div>
-              <el-form-item label="签名方式">
-                <el-select v-model="epayForm.sign_mode" style="width: 100%">
-                  <el-option label="直接拼接密钥" value="direct" />
-                  <el-option label="key= 参数拼接" value="with_key" />
+              <el-form-item label="下单方式">
+                <el-select v-model="epayForm.order_mode" style="width: 100%">
+                  <el-option label="API 接口（MAPI）" value="mapi" />
+                  <el-option label="页面跳转（submit）" value="submit" />
                 </el-select>
+                <p class="form-item-help">
+                  {{ epayForm.order_mode === 'submit'
+                    ? '提交表单跳转至易支付收银台完成支付'
+                    : '调用 MAPI 接口下单，返回支付链接/二维码后跳转' }}
+                </p>
               </el-form-item>
               <el-form-item label="网站名称">
                 <el-input v-model="epayForm.sitename" placeholder="可选" />
@@ -166,7 +171,7 @@
 import { ref, computed, onMounted } from 'vue'
 import { useRouter } from 'vue-router'
 import { api } from '../api'
-import { ElMessage } from 'element-plus'
+import { ElMessage, ElMessageBox } from 'element-plus'
 import { reportApiError } from '../utils/errorFeedback'
 import { Refresh } from '@element-plus/icons-vue'
 import { redirectToEpayOrder } from '../utils/epayPay'
@@ -184,7 +189,7 @@ const epayForm = ref({
   key_configured: false,
   notify_url: '',
   return_url: '',
-  sign_mode: 'direct',
+  order_mode: 'mapi',
   sitename: '',
   enabled_channels: ['alipay', 'wxpay', 'qqpay'],
   resolved_notify_url: '',
@@ -250,11 +255,11 @@ const fillEpayForm = (data) => {
     enabled: !!data.enabled,
     api_url: data.api_url || '',
     pid: data.pid || '',
-    key: '',
+    key: data.key || '',
     key_configured: !!data.key_configured,
     notify_url: data.notify_url || '',
     return_url: data.return_url || '',
-    sign_mode: data.sign_mode || 'direct',
+    order_mode: data.order_mode || 'mapi',
     sitename: data.sitename || '',
     enabled_channels: Array.isArray(data.enabled_channels)
       ? [...data.enabled_channels]
@@ -278,7 +283,7 @@ const buildPayload = () => {
     pid: epayForm.value.pid,
     notify_url: epayForm.value.notify_url,
     return_url: epayForm.value.return_url,
-    sign_mode: epayForm.value.sign_mode,
+    order_mode: epayForm.value.order_mode,
     sitename: epayForm.value.sitename,
     enabled_channels: epayForm.value.enabled_channels,
   }
@@ -388,6 +393,14 @@ const runTestPayment = async () => {
       pay_type: testPayType.value,
       money: testPayMoney.value || '0.01',
     })
+    if (order.pay_mode === 'qrcode' && order.qr_image) {
+      await ElMessageBox.alert(
+        `<div style="text-align:center"><img src="${order.qr_image}" alt="支付二维码" style="width:220px;height:220px" /><p style="margin-top:8px">请使用对应客户端扫码（金额 ¥${order.money}）</p></div>`,
+        '扫码支付测试',
+        { dangerouslyUseHTMLString: true, confirmButtonText: '关闭' },
+      )
+      return
+    }
     redirectToEpayOrder(order)
   } catch (error) {
     if (reportApiError(error, '测试支付失败')) return

@@ -14,6 +14,8 @@ UUID_PATTERN = re.compile(
 LEGACY_PRODUCT_KEY_PATTERN = re.compile(r"^prod_[a-zA-Z0-9_-]+$")
 
 DEFAULT_PRODUCT_SOFTWARE_NAME = "__default__"
+DEFAULT_PRODUCT_DISPLAY_NAME = "默认产品"
+LEGACY_DEFAULT_PRODUCT_DISPLAY_NAME = "未登记产品（默认）"
 CLIENT_SOFTWARE_NAME_MISMATCH_DETAIL = "software_name 与 client_secret 不一致"
 
 
@@ -56,7 +58,10 @@ def software_name_for_product(product: Product | None, *, fallback: str = "") ->
 
 def display_software_name(product: Product) -> str:
     if product.is_default:
-        return (product.display_name or "").strip()
+        name = (product.display_name or "").strip()
+        if not name or name == LEGACY_DEFAULT_PRODUCT_DISPLAY_NAME:
+            return DEFAULT_PRODUCT_DISPLAY_NAME
+        return name
     return (product.software_name or product.display_name or "").strip()
 
 

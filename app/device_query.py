@@ -1,9 +1,12 @@
 from __future__ import annotations
 
+from sqlalchemy import or_
 from sqlalchemy.orm import Session
 
 from app.models import Device, Product
+from app.product_auth import build_device_plan_display, evaluate_device_authorization
 from app.product_resolve import build_product_key_map
+from app.product_utils import display_software_name
 from app.schemas import DeviceListSummary, DeviceResponse
 
 
@@ -24,11 +27,16 @@ def apply_device_filters(
 
     if keyword:
         kw = f"%{keyword.strip()}%"
+        query = query.outerjoin(Product, Device.product_key == Product.key)
         query = query.filter(
-            (Device.device_id.like(kw))
-            | (Device.remark.like(kw))
-            | (Device.software_name.like(kw))
-            | (Device.product_key.like(kw))
+            or_(
+                Device.device_id.like(kw),
+                Device.remark.like(kw),
+                Device.software_name.like(kw),
+                Device.product_key.like(kw),
+                Product.display_name.like(kw),
+                Product.software_name.like(kw),
+            )
         )
 
     if auth_status == "authorized":
@@ -49,12 +57,34 @@ def build_device_summary(query) -> DeviceListSummary:
     )
 
 
-def serialize_device(device: Device, product_map: dict[str, Product]) -> dict:
+def _product_display_name(product: Product) -> str:
+    if product.is_default:
+        return display_software_name(product)
+    return (product.display_name or display_software_name(product)).strip()
+
+
+def serialize_device(
+    device: Device,
+    product_map: dict[str, Product],
+    db: Session | None = None,
+) -> dict:
     data = DeviceResponse.model_validate(device).model_dump(mode="json")
     bound_key = (device.product_key or "").strip()
     product = product_map.get(bound_key) if bound_key else None
     data["product_known"] = product is not None and not product.is_default
-    data["product_display_name"] = product.display_name if product else None
+    if product:
+        data["product_display_name"] = _product_display_name(product)
+        data["product_auth_mode"] = product.auth_mode
+    else:
+        data["product_display_name"] = None
+        data["product_auth_mode"] = None
+
+    if db is not None:
+        evaluation = evaluate_device_authorization(db, device, product=product)
+        data["plan"] = evaluation.plan
+        data["auth_message"] = evaluation.message
+        plan_display = build_device_plan_display(db, device, product, evaluation)
+        data.update(plan_display)
     return data
 
 
@@ -102,6 +132,6 @@ def list_devices_payload(
         "total": summary.total,
         "summary": summary.model_dump(mode="json"),
         "devices": [
-            serialize_device(device, product_map) for device in devices
+            serialize_device(device, product_map, db) for device in devices
         ],
     }

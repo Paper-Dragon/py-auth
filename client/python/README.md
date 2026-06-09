@@ -19,7 +19,7 @@ pip install py-auth-client --extra-index-url https://www.geekery.cn/pip/simple/
 | 参数 | 是否必需 | 说明 |
 |------|----------|------|
 | `server_url` | 必填 | 服务地址 |
-| `software_name` | 必填 | 写在加密载荷里，用于授权校验（试用/付费/审核等）；填后台登记的软件名称，不是内部 UUID |
+| `software_name` | 必填 | 写在加密载荷里，用于授权校验（默认/手动审核/付费等）；填后台登记的软件名称，不是内部 UUID |
 | `client_secret` | 条件必填 | **可信接入标识**，硬编码在发行包中（不同套餐/版本使用不同值）；服务端信任该标识做心跳加解密并确定 **套餐 plan**。开发调试可用环境变量 `CLIENT_SECRET` |
 | `device_id` | 可选 | 省略时自动生成或复用 |
 | `device_info` | 可选 | 省略时自动采集 |
@@ -34,7 +34,7 @@ pip install py-auth-client --extra-index-url https://www.geekery.cn/pip/simple/
 
 - 它是服务端**信任的标识**，用于识别客户端发行渠道/套餐，并返回对应 `plan`
 - **免费版 / Pro 版** 可各自硬编码不同标识
-- 与 `software_name` 分工：`software_name` 走授权规则（试用、付费等），`client_secret` 走套餐归属
+- 与 `software_name` 分工：`software_name` 走授权规则（手动审核、付费等），`client_secret` 走套餐归属
 - 轮换 `client_secret` 会使旧发行包标识失效，需发新包（后台产品列表可复制当前密钥）
 
 ## 示例
@@ -85,7 +85,7 @@ print(
 - `message`
 - `device_id`
 - `server_url`
-- `cache_remaining_time`：本地缓存剩余有效时间（默认 7 天，由 `cache_validity_days` 控制），**不是**服务端授权或试用到期
+- `cache_remaining_time`：本地缓存剩余有效时间（默认 7 天，由 `cache_validity_days` 控制），**不是**服务端授权到期
 - `cache_valid`
 
 ### 清除本地缓存

@@ -388,7 +388,7 @@ class AuthClient:
         self._device_info_deferred = False
 
     def _format_cache_remaining_time(self, cached_at: float) -> str:
-        """本地授权缓存剩余有效时间（非服务端授权/试用到期）。"""
+        """本地授权缓存剩余有效时间（非服务端授权到期）。"""
         if not cached_at or cached_at <= 0:
             return '未知'
         now = time.time()

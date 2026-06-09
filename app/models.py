@@ -4,16 +4,12 @@ from app.database import Base
 
 AUTH_MODE_OPEN = "open"
 AUTH_MODE_MANUAL = "manual"
-AUTH_MODE_TRIAL = "trial"
 AUTH_MODE_PAID = "paid"
-AUTH_MODE_HYBRID = "hybrid"
 
 AUTH_MODES = (
     AUTH_MODE_OPEN,
     AUTH_MODE_MANUAL,
-    AUTH_MODE_TRIAL,
     AUTH_MODE_PAID,
-    AUTH_MODE_HYBRID,
 )
 
 class Device(Base):

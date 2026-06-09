@@ -28,6 +28,40 @@
 
 
 
+      <template v-else-if="qrState">
+
+        <div class="pay-header">
+
+          <h1>扫码支付</h1>
+
+          <p>请使用{{ qrChannelLabel }}扫描下方二维码完成支付</p>
+
+        </div>
+
+        <div class="qr-box">
+
+          <img :src="qrState.qr_image" alt="支付二维码" class="qr-img" />
+
+          <div class="qr-amount">¥{{ qrState.money }}</div>
+
+          <div class="qr-status">
+
+            <el-icon class="is-loading"><Loading /></el-icon>
+
+            <span>支付完成后将自动跳转…</span>
+
+          </div>
+
+        </div>
+
+        <p v-if="errorMessage" class="error-text">{{ errorMessage }}</p>
+
+        <el-button class="pay-btn" size="large" @click="cancelQrPay">取消</el-button>
+
+      </template>
+
+
+
       <template v-else>
 
         <div class="pay-header">
@@ -142,9 +176,9 @@
 
 <script setup>
 
-import { ref, computed, onMounted, watch } from 'vue'
+import { ref, computed, onMounted, onUnmounted, watch } from 'vue'
 
-import { useRoute } from 'vue-router'
+import { useRoute, useRouter } from 'vue-router'
 
 import { Loading } from '@element-plus/icons-vue'
 
@@ -164,6 +198,8 @@ import { savePaymentOrderContext } from '../utils/paymentOrderContext'
 
 const route = useRoute()
 
+const router = useRouter()
+
 const formRef = ref(null)
 
 const loading = ref(true)
@@ -177,6 +213,10 @@ const errorMessage = ref('')
 const pendingQuery = ref(parsePayPageQuery(route.query))
 
 const autoPayPending = ref(false)
+
+const qrState = ref(null)
+
+let qrPollTimer = null
 
 
 
@@ -217,6 +257,16 @@ const payChannelLabel = computed(() =>
   deviceContext.value.pay_type ? payTypeLabel(deviceContext.value.pay_type) : ''
 
 )
+
+
+
+const qrChannelLabel = computed(() => {
+
+  const t = qrState.value?.pay_type || deviceContext.value.pay_type
+
+  return t ? payTypeLabel(t) : '对应'
+
+})
 
 
 
@@ -396,6 +446,14 @@ const submit = async () => {
 
     savePaymentOrderContext(order.out_trade_no, deviceId)
 
+    if (order.pay_mode === 'qrcode' && order.qr_image) {
+
+      startQrPay(order, deviceId)
+
+      return true
+
+    }
+
     redirectToEpayOrder(order)
 
     return true
@@ -413,6 +471,86 @@ const submit = async () => {
     submitting.value = false
 
   }
+
+}
+
+
+
+const stopQrPoll = () => {
+
+  if (qrPollTimer) {
+
+    clearInterval(qrPollTimer)
+
+    qrPollTimer = null
+
+  }
+
+}
+
+
+
+const startQrPay = (order, deviceId) => {
+
+  errorMessage.value = ''
+
+  qrState.value = {
+
+    out_trade_no: order.out_trade_no,
+
+    qr_image: order.qr_image,
+
+    money: order.money,
+
+    pay_type: order.pay_type,
+
+    device_id: deviceId,
+
+  }
+
+  stopQrPoll()
+
+  qrPollTimer = setInterval(pollQrOrder, 3000)
+
+}
+
+
+
+const pollQrOrder = async () => {
+
+  const state = qrState.value
+
+  if (!state) return
+
+  try {
+
+    const order = await api.getPaymentOrder(state.out_trade_no, true, state.device_id)
+
+    if (order.status === 'paid') {
+
+      stopQrPoll()
+
+      router.push({ path: '/pay/result', query: { out_trade_no: state.out_trade_no } })
+
+    }
+
+  } catch (error) {
+
+    // 轮询失败忽略，等待下次重试
+
+  }
+
+}
+
+
+
+const cancelQrPay = () => {
+
+  stopQrPoll()
+
+  qrState.value = null
+
+  errorMessage.value = ''
 
 }
 
@@ -463,6 +601,10 @@ const initFromRoute = async () => {
 
 
 onMounted(initFromRoute)
+
+
+
+onUnmounted(stopQrPoll)
 
 
 
@@ -683,6 +825,68 @@ watch(() => route.query, () => {
   color: #f56c6c;
 
   text-align: center;
+
+}
+
+
+
+.qr-box {
+
+  display: flex;
+
+  flex-direction: column;
+
+  align-items: center;
+
+  gap: 14px;
+
+  margin: 24px 0 20px;
+
+}
+
+
+
+.qr-img {
+
+  width: 220px;
+
+  height: 220px;
+
+  padding: 12px;
+
+  background: #fff;
+
+  border: 1px solid #ebeef5;
+
+  border-radius: 12px;
+
+}
+
+
+
+.qr-amount {
+
+  font-size: 26px;
+
+  font-weight: 700;
+
+  color: #f56c6c;
+
+}
+
+
+
+.qr-status {
+
+  display: flex;
+
+  align-items: center;
+
+  gap: 8px;
+
+  color: #909399;
+
+  font-size: 13px;
 
 }
 

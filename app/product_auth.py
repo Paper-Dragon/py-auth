@@ -1,16 +1,13 @@
 from __future__ import annotations
 
 from dataclasses import dataclass
-from datetime import datetime, timedelta
 
 from sqlalchemy.orm import Session
 
 from app.models import (
-    AUTH_MODE_HYBRID,
     AUTH_MODE_MANUAL,
     AUTH_MODE_OPEN,
     AUTH_MODE_PAID,
-    AUTH_MODE_TRIAL,
     Device,
     Order,
     Product,
@@ -18,6 +15,22 @@ from app.models import (
 from app.product_utils import plan_from_product
 
 ORDER_STATUS_PAID = "paid"
+
+PLAN_DISPLAY_NAMES: dict[str, str] = {
+    "pro": "Pro",
+}
+
+
+def format_plan_name(plan: str | None) -> str:
+    if not plan:
+        return ""
+    key = plan.strip().lower()
+    if key in PLAN_DISPLAY_NAMES:
+        return PLAN_DISPLAY_NAMES[key]
+    text = plan.strip()
+    if text.isascii() and text.isalpha():
+        return text.capitalize()
+    return text
 
 
 @dataclass
@@ -56,30 +69,13 @@ def get_device_plan(db: Session, device: Device, product: Product | None) -> str
     )
     if order and order.plan:
         return order.plan
-    if product.auth_mode == AUTH_MODE_HYBRID:
-        return "free"
     return None
-
-
-def _trial_days(product: Product) -> int:
-    config = product.config if isinstance(product.config, dict) else {}
-    try:
-        days = int(config.get("trial_days", 7))
-    except (TypeError, ValueError):
-        days = 7
-    return max(1, min(days, 3650))
-
-
-def _is_trial_active(device: Device, product: Product) -> bool:
-    anchor = device.created_at or datetime.now()
-    expires_at = anchor + timedelta(days=_trial_days(product))
-    return datetime.now() < expires_at
 
 
 def _initial_authorized_for_product(product: Product) -> bool:
     if not product.is_active:
         return False
-    if product.auth_mode in (AUTH_MODE_OPEN, AUTH_MODE_TRIAL, AUTH_MODE_HYBRID):
+    if product.auth_mode == AUTH_MODE_OPEN:
         return True
     return False
 
@@ -128,21 +124,70 @@ def evaluate_device_authorization(
             )
         return AuthEvaluation(False, "设备未授权，请联系管理员审核")
 
-    if mode == AUTH_MODE_TRIAL:
-        if _is_trial_active(device, product):
-            return AuthEvaluation(True, "设备已授权（试用中）", plan)
-        return AuthEvaluation(False, "试用已到期")
-
     if mode == AUTH_MODE_PAID:
         if has_paid_order(db, device.device_id, product.key) or device.is_authorized:
             paid_plan = plan or plan_from_product(product)
             return AuthEvaluation(True, "设备已授权", paid_plan)
         return AuthEvaluation(False, "设备未授权，请先完成付款")
 
-    if mode == AUTH_MODE_HYBRID:
-        paid_plan = plan or "free"
-        return AuthEvaluation(True, "设备已授权", paid_plan)
-
     if device.is_authorized:
         return AuthEvaluation(True, "设备已授权", plan)
     return AuthEvaluation(False, "设备未授权")
+
+
+def build_device_plan_display(
+    db: Session,
+    device: Device,
+    product: Product | None,
+    evaluation: AuthEvaluation,
+) -> dict[str, str | None]:
+    """管理端套餐展示：标签、补充说明与 Tag 类型。"""
+    empty = {"plan_label": None, "plan_hint": None, "plan_tag": None}
+    if not product:
+        return empty
+
+    mode = product.auth_mode
+    plan = evaluation.plan
+    paid = has_paid_order(db, device.device_id, product.key)
+
+    if mode == AUTH_MODE_PAID:
+        target_plan = plan or plan_from_product(product)
+        if not evaluation.authorized and not paid:
+            return {
+                "plan_label": "待付费",
+                "plan_hint": format_plan_name(target_plan),
+                "plan_tag": "danger",
+            }
+        return {
+            "plan_label": format_plan_name(target_plan),
+            "plan_hint": "已付费" if paid else ("手动授权" if device.is_authorized else None),
+            "plan_tag": "success" if paid else "warning",
+        }
+
+    if mode == AUTH_MODE_OPEN:
+        return {
+            "plan_label": "默认",
+            "plan_hint": "不限",
+            "plan_tag": "success",
+        }
+
+    if mode == AUTH_MODE_MANUAL:
+        if evaluation.authorized:
+            return {
+                "plan_label": "标准",
+                "plan_hint": "手动授权",
+                "plan_tag": "success",
+            }
+        return {
+            "plan_label": "待审核",
+            "plan_hint": None,
+            "plan_tag": "danger",
+        }
+
+    if plan:
+        return {
+            "plan_label": format_plan_name(plan),
+            "plan_hint": None,
+            "plan_tag": "info",
+        }
+    return empty

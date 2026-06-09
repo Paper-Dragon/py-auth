@@ -100,7 +100,7 @@
               <el-input
                 v-model="form.software_name"
                 :disabled="form.is_default"
-                :placeholder="form.is_default ? '未登记产品（默认）' : '例如：绘图工具 Pro'"
+                :placeholder="form.is_default ? '默认产品' : '例如：绘图工具 Pro'"
               />
             </el-form-item>
             <el-form-item label="UUID" prop="key">
@@ -127,10 +127,7 @@
                 />
               </el-select>
             </el-form-item>
-            <el-form-item v-if="form.auth_mode === 'trial'" label="试用天数" prop="trial_days">
-              <el-input-number v-model="form.trial_days" :min="1" :max="3650" controls-position="right" />
-            </el-form-item>
-            <template v-if="form.auth_mode === 'paid' || form.auth_mode === 'hybrid'">
+            <template v-if="form.auth_mode === 'paid'">
               <el-form-item label="付费档位" prop="plan_on_paid">
                 <el-input v-model="form.plan_on_paid" placeholder="例如：pro" />
               </el-form-item>
@@ -169,18 +166,15 @@ import { ElMessage } from 'element-plus'
 import { reportApiError } from '../utils/errorFeedback'
 import { Plus } from '@element-plus/icons-vue'
 import { PAY_CHANNELS } from '../constants/payChannels'
+import { AUTH_MODES, authModeLabel, authModeTagType } from '../constants/authModes'
 
-const authModeOptions = [
-  { value: 'open', label: '开放' },
-  { value: 'manual', label: '手动审核' },
-  { value: 'trial', label: '试用' },
-  { value: 'paid', label: '付费' },
-  { value: 'hybrid', label: '免费+付费' },
-]
+const authModeOptions = AUTH_MODES
 
-const authModeLabels = Object.fromEntries(authModeOptions.map((item) => [item.value, item.label]))
-
-const payChannelOptions = PAY_CHANNELS
+const enabledChannels = ref([])
+const payChannelOptions = computed(() => {
+  if (!enabledChannels.value.length) return PAY_CHANNELS
+  return PAY_CHANNELS.filter((item) => enabledChannels.value.includes(item.value))
+})
 
 const products = ref([])
 const expandedUuidIds = ref(new Set())
@@ -193,7 +187,6 @@ const form = ref({
   key: '',
   software_name: '',
   auth_mode: 'open',
-  trial_days: 7,
   plan_on_paid: 'pro',
   price: '0.00',
   pay_type: 'wxpay',
@@ -239,7 +232,6 @@ const rules = {
     },
   ],
   auth_mode: [{ required: true, message: '请选择授权模式', trigger: 'change' }],
-  trial_days: [{ required: true, message: '请设置试用天数', trigger: 'change' }],
   plan_on_paid: [{ required: true, message: '请填写付费档位', trigger: 'blur' }],
   price: [{ required: true, message: '请填写价格', trigger: 'blur' }],
 }
@@ -251,7 +243,7 @@ const dialogTitle = computed(() => {
 })
 
 const productNameLabel = (row) => {
-  if (row.is_default) return row.display_name || '未登记产品（默认）'
+  if (row.is_default) return row.display_name || '默认产品'
   return row.software_name || row.display_name || '-'
 }
 
@@ -260,25 +252,9 @@ const formatTime = (value) => {
   return new Date(value).toLocaleString()
 }
 
-const authModeLabel = (mode) => authModeLabels[mode] || mode
-
-const authModeTagType = (mode) => {
-  const map = {
-    open: 'success',
-    manual: 'warning',
-    trial: '',
-    paid: 'danger',
-    hybrid: 'info',
-  }
-  return map[mode] || 'info'
-}
-
 const formatConfigSummary = (row) => {
   const config = row.config || {}
-  if (row.auth_mode === 'trial') {
-    return `试用 ${config.trial_days ?? 7} 天`
-  }
-  if (row.auth_mode === 'paid' || row.auth_mode === 'hybrid') {
+  if (row.auth_mode === 'paid') {
     const price = config.price ?? '0.00'
     const plan = config.plan_on_paid ?? 'pro'
     const pay = config.pay_type ?? 'wxpay'
@@ -289,10 +265,7 @@ const formatConfigSummary = (row) => {
 
 const buildConfigPayload = () => {
   const mode = form.value.auth_mode
-  if (mode === 'trial') {
-    return { trial_days: form.value.trial_days }
-  }
-  if (mode === 'paid' || mode === 'hybrid') {
+  if (mode === 'paid') {
     return {
       plan_on_paid: form.value.plan_on_paid,
       price: form.value.price,
@@ -308,10 +281,9 @@ const fillFormFromProduct = (product) => {
     id: product.id,
     key: product.key,
     software_name: product.is_default
-      ? (product.display_name || '未登记产品（默认）')
+      ? (product.display_name || '默认产品')
       : (product.software_name || product.display_name || ''),
     auth_mode: product.auth_mode,
-    trial_days: config.trial_days ?? 7,
     plan_on_paid: config.plan_on_paid ?? 'pro',
     price: config.price ?? '0.00',
     pay_type: config.pay_type ?? 'wxpay',
@@ -332,13 +304,21 @@ const fetchProducts = async () => {
   }
 }
 
+const fetchEnabledChannels = async () => {
+  try {
+    const data = await api.getPaymentChannels()
+    enabledChannels.value = Array.isArray(data?.channels) ? data.channels : []
+  } catch {
+    enabledChannels.value = []
+  }
+}
+
 const resetForm = () => {
   form.value = {
     id: null,
     key: '',
     software_name: '',
     auth_mode: 'open',
-    trial_days: 7,
     plan_on_paid: 'pro',
     price: '0.00',
     pay_type: 'wxpay',
@@ -351,12 +331,20 @@ const resetForm = () => {
   }
 }
 
-const onAuthModeChange = () => {
-  if (form.value.auth_mode === 'trial' && !form.value.trial_days) {
-    form.value.trial_days = 7
+const ensureValidPayType = () => {
+  const options = payChannelOptions.value
+  if (!options.length) return
+  if (!options.some((item) => item.value === form.value.pay_type)) {
+    form.value.pay_type = options[0].value
   }
-  if ((form.value.auth_mode === 'paid' || form.value.auth_mode === 'hybrid') && !form.value.plan_on_paid) {
-    form.value.plan_on_paid = 'pro'
+}
+
+const onAuthModeChange = () => {
+  if (form.value.auth_mode === 'paid') {
+    if (!form.value.plan_on_paid) {
+      form.value.plan_on_paid = 'pro'
+    }
+    ensureValidPayType()
   }
 }
 
@@ -445,7 +433,10 @@ const handleDelete = async (productId) => {
   }
 }
 
-onMounted(fetchProducts)
+onMounted(() => {
+  fetchProducts()
+  fetchEnabledChannels()
+})
 </script>
 
 <style scoped>

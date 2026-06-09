@@ -49,9 +49,12 @@
           </el-select>
           <el-select v-model="payType" style="width: 120px" @change="applyFilters">
             <el-option label="全部支付" value="" />
-            <el-option label="支付宝" value="alipay" />
-            <el-option label="微信" value="wxpay" />
-            <el-option label="QQ 钱包" value="qqpay" />
+            <el-option
+              v-for="channel in PAY_CHANNELS"
+              :key="channel.value"
+              :label="channel.label"
+              :value="channel.value"
+            />
           </el-select>
           <el-select v-model="testOnly" style="width: 120px" @change="applyFilters">
             <el-option label="全部订单" :value="''" />
@@ -175,6 +178,7 @@ import { api } from '../api'
 import { ElMessage } from 'element-plus'
 import { reportApiError } from '../utils/errorFeedback'
 import { Refresh } from '@element-plus/icons-vue'
+import { PAY_CHANNELS, payTypeLabel } from '../constants/payChannels'
 
 const loading = ref(false)
 const orders = ref([])
@@ -191,7 +195,6 @@ const detailVisible = ref(false)
 const currentOrder = ref(null)
 const detailSyncing = ref(false)
 
-const payTypeLabel = (type) => ({ alipay: '支付宝', wxpay: '微信', qqpay: 'QQ 钱包' }[type] || type)
 const formatTime = (value) => (value ? new Date(value).toLocaleString() : '-')
 
 const loadOrders = async () => {
