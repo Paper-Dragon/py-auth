@@ -6,11 +6,12 @@
 
 | 文档 | 说明 |
 |------|------|
-| [client/README.md](/e:/py-auth/client/README.md) | 客户端 SDK 总览 |
-| [client/python/README.md](/e:/py-auth/client/python/README.md) | Python 客户端 SDK 使用说明 |
-| [client/go/README.md](/e:/py-auth/client/go/README.md) | Go 客户端 SDK 使用说明 |
-| [client/ts/README.md](/e:/py-auth/client/ts/README.md) | TypeScript 客户端 SDK 使用说明 |
-| [web/src/docs/usage.md](/e:/py-auth/web/src/docs/usage.md) | 后台设备字段说明 |
+| [client/README.md](../../client/README.md) | 客户端 SDK 总览 |
+| [client/python/README.md](../../client/python/README.md) | Python 客户端 SDK 使用说明 |
+| [client/go/README.md](../../client/go/README.md) | Go 客户端 SDK 使用说明 |
+| [client/ts/README.md](../../client/ts/README.md) | TypeScript 客户端 SDK 使用说明 |
+| [docs/dev/payment.md](payment.md) | 易支付与公开支付页 |
+| [web/src/docs/usage.md](../../web/src/docs/usage.md) | 后台设备字段说明 |
 
 ## 1. 默认存储根
 
@@ -78,15 +79,20 @@ state_{serverHash12}_default.dat
 12 字节 nonce + 密文 + 16 字节 tag
 ```
 
-## 5. `CLIENT_SECRET`
+## 5. `client_secret`（可信接入标识）
 
-`CLIENT_SECRET` 必须与服务端配置保持一致。
+须与服务端对应产品登记的标识一致。
 
 用途：
 
-- 仅用于在线心跳请求和响应的传输层加解密
-- 不参与状态文件 AES 密钥生成
-- 不直接写入状态文件
+- 在线心跳加解密
+- 服务端**信任**该标识，据此确定套餐 `plan`（绑定产品，非 `software_name`）
+- 不参与状态文件 AES 密钥生成，不写入状态文件
+
+发行约定：
+
+- **正式软件**：硬编码在发行包中，不同版本/套餐使用不同标识
+- **开发调试**：可用环境变量 `CLIENT_SECRET`
 
 ## 6. `device_id`
 
@@ -100,6 +106,17 @@ state_{serverHash12}_default.dat
 - `get_*_authorization_info` / `GetAuthorizationInfo` / `getAuthorizationInfo`：只读本地，不联网
 
 `cache_validity_days` 只影响是否继续信任本地缓存中的授权信息。
+
+### `get_authorization_info` 常见字段
+
+| 字段 | 含义 |
+|------|------|
+| `authorized` | 本地缓存中记录的授权结果 |
+| `cache_valid` | 缓存是否在 `cache_validity_days` 有效期内 |
+| `cache_remaining_time` | **本地缓存**剩余有效时间（如 `6天23小时59分钟`），离线时仍可信任缓存的倒计时 |
+| `cached_at` / `cached_at_readable` | 最近一次成功在线校验并写入缓存的时间 |
+
+**注意**：`cache_remaining_time` 不是服务端授权到期时间。试用天数、付费授权等业务期限由服务端心跳返回的 `message` / `plan` 决定，客户端不会将其换算为倒计时写入该字段。
 
 ## 8. 多客户端共享状态文件
 

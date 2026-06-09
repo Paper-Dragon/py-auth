@@ -6,8 +6,9 @@
 
 | 文档 | 说明 |
 |------|------|
-| [client/README.md](/e:/py-auth/client/README.md) | SDK 总览与三端方法对照 |
-| [docs/dev/client-storage.md](/e:/py-auth/docs/dev/client-storage.md) | 存储、`device_id`、状态文件与加解密约定 |
+| [client/README.md](../README.md) | SDK 总览与三端方法对照 |
+| [docs/dev/client-storage.md](../../docs/dev/client-storage.md) | 存储、`device_id`、状态文件与加解密约定 |
+| [docs/dev/payment.md](../../docs/dev/payment.md) | 付费授权与公开支付页 |
 
 ## 安装
 
@@ -24,7 +25,7 @@ npm i py-auth-client
 | `softwareVersion` | 可选 | 软件版本 |
 | `deviceId` | 可选 | 省略时自动生成或复用 |
 | `deviceInfo` | 可选 | 省略时自动采集 |
-| `clientSecret` | 条件必填 | 参数可省略，但运行时必须通过参数或环境变量 `CLIENT_SECRET` 提供 |
+| `clientSecret` | 条件必填 | 可信接入标识，硬编码在发行包；服务端信任该值确定套餐 plan。开发时可用 `CLIENT_SECRET` |
 | `cacheValidityDays` | 可选 | 本地缓存有效期，默认 `7` |
 | `checkIntervalDays` | 可选 | 检查间隔，默认 `2` |
 | `debug` | 可选 | 是否输出调试日志 |
@@ -73,7 +74,7 @@ if (result.success && result.authorized) {
 
 ```ts
 const info = await client.getAuthorizationInfo();
-console.log(info.authorized, info.message, info.device_id, info.remaining_time);
+console.log(info.authorized, info.message, info.device_id, info.cache_remaining_time);
 ```
 
 ### 清除本地缓存
@@ -82,4 +83,4 @@ console.log(info.authorized, info.message, info.device_id, info.remaining_time);
 client.clearCache();
 ```
 
-开发构建说明见 [docs/dev/client-ts-build.md](/e:/py-auth/docs/dev/client-ts-build.md)。
+开发构建说明见 [docs/dev/client-ts-build.md](../../docs/dev/client-ts-build.md)。

@@ -336,7 +336,7 @@ class AuthClient:
         self.device_info['sdk'] = {'language': 'python', 'sdk_name': 'py_auth_client', 'sdk_version': __version__, 'runtime': f'{sys.version_info.major}.{sys.version_info.minor}.{sys.version_info.micro}'}
         self.client_secret = client_secret or os.getenv('CLIENT_SECRET', '')
         if not self.client_secret:
-            raise ValueError('CLIENT_SECRET未配置！请在初始化时传入client_secret参数，或设置环境变量CLIENT_SECRET。这是安全要求，必须配置。')
+            raise ValueError('client_secret未配置！请在初始化时传入（发行包中硬编码），或开发时设置环境变量CLIENT_SECRET。')
         self._cipher: Optional[Any] = None
         self.cache = AuthCache(self._storage_base, self.device_id, self.server_url, software_name=self.software_name, cache_validity_days=cache_validity_days, check_interval_days=check_interval_days)
         self._facts_prefetch_executor: Optional[ThreadPoolExecutor] = None
@@ -387,7 +387,8 @@ class AuthClient:
         self.device_info['sdk'] = {'language': 'python', 'sdk_name': 'py_auth_client', 'sdk_version': __version__, 'runtime': f'{sys.version_info.major}.{sys.version_info.minor}.{sys.version_info.micro}'}
         self._device_info_deferred = False
 
-    def _format_remaining_time(self, cached_at: float) -> str:
+    def _format_cache_remaining_time(self, cached_at: float) -> str:
+        """本地授权缓存剩余有效时间（非服务端授权/试用到期）。"""
         if not cached_at or cached_at <= 0:
             return '未知'
         now = time.time()
@@ -437,7 +438,11 @@ class AuthClient:
         di['sdk'] = sk
         request_data = {'device_id': self.device_id, 'software_name': self.software_name, 'device_info': di}
         try:
-            response = requests.post(f'{self.server_url}/api/auth/heartbeat', json={'encrypted_data': self._encrypt_data(request_data)}, timeout=_DEFAULT_HEARTBEAT_TIMEOUT_SEC)
+            response = requests.post(
+                f'{self.server_url}/api/auth/heartbeat',
+                json={'encrypted_data': self._encrypt_data(request_data)},
+                timeout=_DEFAULT_HEARTBEAT_TIMEOUT_SEC,
+            )
             if response.status_code == 200:
                 decrypted = self._decrypt_data(response.json().get('encrypted_data', ''))
                 if decrypted:
@@ -589,8 +594,8 @@ class AuthClient:
                     return r_full
                 gc = self.cache.get_cache()
                 if gc and self.cache.is_cache_valid():
-                    remaining = self._format_remaining_time(gc.get('cached_at', 0))
-                    self._log_debug(f'补全心跳失败，沿用轻量结果，订阅剩余时间: {remaining}')
+                    remaining = self._format_cache_remaining_time(gc.get('cached_at', 0))
+                    self._log_debug(f'补全心跳失败，沿用轻量结果，缓存剩余有效期: {remaining}')
                     return {'authorized': True, 'message': gc.get('message', ''), 'success': True, 'from_cache': True}
                 return r_full
             self._write_check_cache_retries(r_fast, None)
@@ -601,15 +606,15 @@ class AuthClient:
             self._log_debug('在线订阅成功，更新缓存')
             self._write_check_cache_retries(online_result, next_hb if online_result['authorized'] else None)
             return online_result
-        if cache_valid:
+        if cache_valid and not online_result.get('is_auth_error'):
             cached_at = cache_data.get('cached_at', 0)
-            remaining = self._format_remaining_time(cached_at)
-            self._log_debug(f"在线订阅失败，但缓存有效，使用缓存结果: {online_result.get('message')}，订阅剩余时间: {remaining}")
+            remaining = self._format_cache_remaining_time(cached_at)
+            self._log_debug(f"在线订阅失败，但缓存有效，使用缓存结果: {online_result.get('message')}，缓存剩余有效期: {remaining}")
             return {'authorized': True, 'message': cache_data.get('message', ''), 'success': True, 'from_cache': True}
         if cache_data:
             cached_at = cache_data.get('cached_at', 0)
-            remaining = self._format_remaining_time(cached_at)
-            self._log_debug(f"在线订阅失败，缓存已过期，返回失败结果: {online_result.get('message')}，订阅剩余时间: {remaining}")
+            remaining = self._format_cache_remaining_time(cached_at)
+            self._log_debug(f"在线订阅失败，缓存已过期，返回失败结果: {online_result.get('message')}，缓存剩余有效期: {remaining}")
         else:
             self._log_debug(f"在线订阅失败，返回失败结果: {online_result.get('message')}")
         return online_result
@@ -655,15 +660,15 @@ class AuthClient:
             self._log_debug('在线订阅成功，更新缓存')
             self._write_check_cache_retries(online_result, next_hb if online_result['authorized'] else None)
             return online_result
-        if cache_valid:
+        if cache_valid and not online_result.get('is_auth_error'):
             cached_at = cache_data.get('cached_at', 0)
-            remaining = self._format_remaining_time(cached_at)
-            self._log_debug(f"在线订阅失败，但缓存有效，使用缓存结果: {online_result.get('message')}，订阅剩余时间: {remaining}")
+            remaining = self._format_cache_remaining_time(cached_at)
+            self._log_debug(f"在线订阅失败，但缓存有效，使用缓存结果: {online_result.get('message')}，缓存剩余有效期: {remaining}")
             return {'authorized': True, 'message': cache_data.get('message', ''), 'success': True, 'from_cache': True}
         if cache_data:
             cached_at = cache_data.get('cached_at', 0)
-            remaining = self._format_remaining_time(cached_at)
-            self._log_debug(f"在线订阅失败，缓存已过期，返回失败结果: {online_result.get('message')}，订阅剩余时间: {remaining}")
+            remaining = self._format_cache_remaining_time(cached_at)
+            self._log_debug(f"在线订阅失败，缓存已过期，返回失败结果: {online_result.get('message')}，缓存剩余有效期: {remaining}")
         else:
             self._log_debug(f"在线订阅失败，返回失败结果: {online_result.get('message')}")
         return online_result
@@ -710,14 +715,14 @@ class AuthClient:
         if cache:
             info = {'authorized': cache.get('authorized', False), 'success': True, 'from_cache': True, 'message': cache.get('message', ''), 'device_id': self.device_id, 'server_url': self.server_url}
             cached_at = cache.get('cached_at', 0)
-            remaining = self._format_remaining_time(cached_at)
-            info['remaining_time'] = remaining
+            remaining = self._format_cache_remaining_time(cached_at)
+            info['cache_remaining_time'] = remaining
             info['cache_valid'] = self.cache.is_cache_valid()
             info['cached_at'] = cached_at
             if cached_at > 0:
                 info['cached_at_readable'] = time.strftime('%Y-%m-%d %H:%M:%S', time.localtime(cached_at))
         else:
-            info = {'authorized': False, 'success': False, 'from_cache': False, 'message': '无本地授权缓存', 'device_id': self.device_id, 'server_url': self.server_url, 'remaining_time': '无缓存', 'cache_valid': False}
+            info = {'authorized': False, 'success': False, 'from_cache': False, 'message': '无本地授权缓存', 'device_id': self.device_id, 'server_url': self.server_url, 'cache_remaining_time': '无缓存', 'cache_valid': False}
         if self.debug:
             try:
                 blob = json.dumps(info, ensure_ascii=False, indent=2)

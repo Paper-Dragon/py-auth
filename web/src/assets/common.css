@@ -4,6 +4,23 @@
   background: var(--color-bg-secondary);
 }
 
+.admin-layout .page-container,
+.admin-layout .page-content,
+.admin-layout .card {
+  width: 100%;
+  max-width: 100%;
+}
+
+.admin-layout .page-container {
+  min-height: auto;
+  background: transparent;
+}
+
+.admin-layout .page-content {
+  padding: 0;
+  margin: 0;
+}
+
 .page-content {
   padding: var(--spacing-lg);
   max-width: 1200px;
@@ -30,11 +47,67 @@
   gap: var(--spacing-md);
 }
 
-.card-header h2 {
+.card-header h2,
+.header-meta h2 {
+  margin: 0;
   font-size: 16px;
   font-weight: 600;
-  margin: 0;
   color: var(--color-text-primary);
+}
+
+.header-meta p {
+  margin: 2px 0 0;
+  font-size: 12px;
+  color: var(--color-text-tertiary);
+}
+
+.header-actions {
+  display: flex;
+  justify-content: flex-end;
+}
+
+.admin-data-table {
+  width: 100%;
+  font-size: var(--table-font-size);
+}
+
+.admin-data-table .el-table__inner-wrapper,
+.admin-data-table .el-table__header-wrapper table,
+.admin-data-table .el-table__body-wrapper table {
+  width: 100%;
+  table-layout: fixed;
+}
+
+.admin-data-table .el-table__header-wrapper th.el-table__cell {
+  font-size: var(--table-header-font-size);
+}
+
+.admin-data-table .el-table__header-wrapper th.el-table__cell .cell {
+  font-weight: 600;
+  color: var(--color-text-secondary);
+  line-height: 1.4;
+}
+
+.admin-data-table .el-table__body-wrapper td.el-table__cell .cell {
+  font-size: var(--table-font-size);
+  line-height: 1.5;
+  color: var(--color-text-primary);
+}
+
+.admin-data-table td.mono-cell .cell,
+.admin-data-table .mono-text {
+  font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace;
+  font-size: var(--table-mono-font-size);
+  color: var(--color-text-secondary);
+}
+
+.admin-data-table .el-tag {
+  font-size: 12px;
+}
+
+.admin-data-table .el-button.is-link {
+  font-size: var(--table-font-size);
+  vertical-align: baseline;
 }
 
 .card-body {
@@ -150,8 +223,8 @@
 
 
 .device-id {
-  font-family: monospace;
-  font-size: 11px;
+  font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace;
+  font-size: var(--table-mono-font-size);
   color: var(--color-text-secondary);
   background: var(--color-bg-secondary);
   padding: 2px 6px;
@@ -219,6 +292,19 @@
 
   .card {
     padding: var(--spacing-md);
+  }
+
+  .card-header {
+    align-items: flex-start;
+    flex-direction: column;
+  }
+
+  .header-actions {
+    width: 100%;
+  }
+
+  .header-actions .el-button {
+    width: 100%;
   }
 
   .stat-card {

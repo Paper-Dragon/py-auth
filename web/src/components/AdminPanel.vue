@@ -39,47 +39,93 @@
           </div>
         </div>
 
-        
-        <el-table 
+        <div class="filter-row">
+          <el-select
+            v-model="filterProductKey"
+            clearable
+            placeholder="全部产品"
+            style="width: 200px"
+            @change="applyFilters"
+          >
+            <el-option label="未绑定产品" value="__none__" />
+            <el-option
+              v-for="item in productOptions"
+              :key="item.key"
+              :label="item.display_name"
+              :value="item.key"
+            />
+          </el-select>
+          <el-select v-model="filterAuthStatus" style="width: 120px" @change="applyFilters">
+            <el-option label="全部状态" value="" />
+            <el-option label="已授权" value="authorized" />
+            <el-option label="未授权" value="unauthorized" />
+          </el-select>
+          <el-input
+            v-model="filterKeyword"
+            clearable
+            placeholder="搜索设备 ID / 软件名称 / 备注"
+            style="width: 240px"
+            @keyup.enter="applyFilters"
+            @clear="applyFilters"
+          />
+          <el-button type="primary" @click="applyFilters">查询</el-button>
+          <el-button @click="resetFilters">重置</el-button>
+        </div>
+
+        <el-table
           ref="tableRef"
           row-key="device_id"
-          :data="devices" 
-          :loading="loading" 
-          stripe 
-          border 
-          class="desktop-table"
+          :data="devices"
+          :loading="loading"
+          stripe
+          border
+          class="admin-data-table desktop-table"
+          empty-text="暂无设备"
           @sort-change="handleSortChange"
           @selection-change="handleSelectionChange"
           :default-sort="{ prop: sortBy, order: sortOrder === 'asc' ? 'ascending' : 'descending' }"
         >
           <el-table-column type="selection" width="48" :selectable="rowSelectable" />
-          <el-table-column prop="device_id" label="设备ID" min-width="200" show-overflow-tooltip>
+          <el-table-column prop="device_id" label="设备ID" min-width="128">
             <template #default="{ row }">
-              <code class="device-id">{{ row.device_id }}</code>
+              <code
+                class="device-id device-id-toggle"
+                :title="expandedDeviceIds.has(row.device_id) ? undefined : row.device_id"
+                @click="toggleDeviceId(row.device_id)"
+              >{{ expandedDeviceIds.has(row.device_id) ? row.device_id : maskDeviceId(row.device_id) }}</code>
             </template>
           </el-table-column>
-          <el-table-column prop="software_name" label="软件" min-width="100">
-            <template #default="{ row }">{{ row.software_name || '-' }}</template>
+          <el-table-column prop="software_name" label="软件名称" min-width="140" sortable="custom" show-overflow-tooltip>
+            <template #default="{ row }">
+              <div class="product-cell">
+                <span class="product-name">{{ row.software_name || '—' }}</span>
+                <el-tag
+                  v-if="row.product_display_name && !row.product_known"
+                  size="small"
+                  type="info"
+                >默认</el-tag>
+              </div>
+            </template>
           </el-table-column>
-          <el-table-column prop="device_info" label="详情" width="80" align="center">
+          <el-table-column prop="device_info" label="详情" width="64" align="center">
             <template #default="{ row }">
               <el-button v-if="row.device_info" type="primary" link size="small" @click="showDeviceInfo(row)">查看</el-button>
               <span v-else>-</span>
             </template>
           </el-table-column>
-          <el-table-column prop="remark" label="备注" min-width="120">
+          <el-table-column prop="remark" label="备注" min-width="100" class-name="remark-cell">
             <template #default="{ row }">
               <el-input v-model="row._remarkValue" size="small" placeholder="备注" @blur="saveRemark(row)" @keyup.enter="saveRemark(row)" />
             </template>
           </el-table-column>
-          <el-table-column prop="is_authorized" label="状态" width="80" align="center">
+          <el-table-column prop="is_authorized" label="状态" width="76" align="center">
             <template #default="{ row }">
               <el-tag :type="row.is_authorized ? 'success' : 'danger'" size="small">
                 {{ row.is_authorized ? '已授权' : '未授权' }}
               </el-tag>
             </template>
           </el-table-column>
-          <el-table-column prop="created_at" width="168" sortable="custom" show-overflow-tooltip>
+          <el-table-column prop="created_at" min-width="148" sortable="custom" show-overflow-tooltip>
             <template #header>
               <el-tooltip content="设备首次请求后不变" placement="top">
                 <span class="col-head-tip">注册时间</span>
@@ -87,7 +133,7 @@
             </template>
             <template #default="{ row }">{{ formatDate(row.created_at) }}</template>
           </el-table-column>
-          <el-table-column prop="updated_at" min-width="188" width="188" sortable="custom" show-overflow-tooltip>
+          <el-table-column prop="updated_at" min-width="148" sortable="custom" show-overflow-tooltip>
             <template #header>
               <el-tooltip content="管理员改授权/备注或设备信息变更" placement="top">
                 <span class="col-head-tip">管理变更追踪</span>
@@ -95,7 +141,7 @@
             </template>
             <template #default="{ row }">{{ formatDate(row.updated_at) }}</template>
           </el-table-column>
-          <el-table-column prop="last_check" width="168" sortable="custom" show-overflow-tooltip>
+          <el-table-column prop="last_check" min-width="136" sortable="custom" show-overflow-tooltip>
             <template #header>
               <el-tooltip content="每次成功心跳/授权校验" placement="top">
                 <span class="col-head-tip">活跃度</span>
@@ -103,7 +149,7 @@
             </template>
             <template #default="{ row }">{{ formatDate(row.last_check) }}</template>
           </el-table-column>
-          <el-table-column label="操作" width="270" fixed="right" align="center">
+          <el-table-column label="操作" min-width="192" fixed="right" align="center">
             <template #default="{ row }">
               <div class="op-btns">
                 <el-button v-if="row.is_authorized" type="warning" size="small" @click="toggleAuth(row, false)" :loading="row._updating">取消授权</el-button>
@@ -132,7 +178,11 @@
                   :disabled="device._updating || bulkDeleting"
                   @change="(v) => toggleMobileSelect(device.device_id, v)"
                 />
-                <code class="device-id">{{ device.device_id }}</code>
+                <code
+                  class="device-id device-id-toggle"
+                  :title="expandedDeviceIds.has(device.device_id) ? undefined : device.device_id"
+                  @click="toggleDeviceId(device.device_id)"
+                >{{ expandedDeviceIds.has(device.device_id) ? device.device_id : maskDeviceId(device.device_id) }}</code>
                 <el-tag :type="device.is_authorized ? 'success' : 'danger'" size="small">
                   {{ device.is_authorized ? '已授权' : '未授权' }}
                 </el-tag>
@@ -141,6 +191,13 @@
                 <div class="info-row" v-if="device.software_name">
                   <span class="label">软件：</span>
                   <span class="value">{{ device.software_name }}</span>
+                </div>
+                <div
+                  v-if="device.product_display_name && !device.product_known"
+                  class="info-row"
+                >
+                  <span class="label">产品：</span>
+                  <el-tag size="small" type="info">默认</el-tag>
                 </div>
                 <div class="info-row">
                   <span class="label">注册时间：</span>
@@ -213,6 +270,7 @@ import { ElMessage, ElMessageBox } from 'element-plus'
 import { api, notifySessionExpired, SESSION_EXPIRED_MESSAGE } from '../api'
 import { reportApiError } from '../utils/errorFeedback'
 const devices = ref([])
+const expandedDeviceIds = ref(new Set())
 const tableRef = ref(null)
 const loading = ref(false)
 const bulkDeleting = ref(false)
@@ -260,6 +318,11 @@ const deviceInfoJsonText = ref('')
 const currentPage = ref(1)
 const pageSize = ref(50)
 const total = ref(0)
+const summary = ref({ total: 0, authorized: 0, unauthorized: 0 })
+const productOptions = ref([])
+const filterProductKey = ref('')
+const filterKeyword = ref('')
+const filterAuthStatus = ref('')
 const sortBy = ref('updated_at')
 const sortOrder = ref('desc')
 let deviceSocket = null
@@ -271,8 +334,21 @@ let lastPageHiddenAt = 0
 let wsRequestSeq = 0
 const pendingWsRequests = new Map()
 
-const authorizedCount = computed(() => devices.value.filter(d => d.is_authorized).length)
-const unauthorizedCount = computed(() => devices.value.filter(d => !d.is_authorized).length)
+const authorizedCount = computed(() => summary.value.authorized ?? 0)
+const unauthorizedCount = computed(() => summary.value.unauthorized ?? 0)
+
+const maskDeviceId = (id) => {
+  const value = String(id || '')
+  if (value.length <= 14) return value
+  return `${value.slice(0, 8)}…${value.slice(-5)}`
+}
+
+const toggleDeviceId = (deviceId) => {
+  const next = new Set(expandedDeviceIds.value)
+  if (next.has(deviceId)) next.delete(deviceId)
+  else next.add(deviceId)
+  expandedDeviceIds.value = next
+}
 
 const requestDevicesReload = () => {
   if (!loading.value) {
@@ -284,6 +360,11 @@ const requestDevicesReload = () => {
 
 const applyDevicesPayload = (data) => {
   total.value = Number(data?.total || 0)
+  summary.value = {
+    total: Number(data?.summary?.total ?? data?.total ?? 0),
+    authorized: Number(data?.summary?.authorized ?? 0),
+    unauthorized: Number(data?.summary?.unauthorized ?? 0),
+  }
   const list = Array.isArray(data?.devices) ? data.devices : []
   devices.value = list.map(d => ({
     ...d,
@@ -412,7 +493,10 @@ const loadDevices = async () => {
       page: currentPage.value,
       page_size: pageSize.value,
       sort_by: sortBy.value,
-      sort_order: sortOrder.value
+      sort_order: sortOrder.value,
+      product_key: filterProductKey.value || null,
+      keyword: filterKeyword.value || null,
+      auth_status: filterAuthStatus.value || null,
     })
     applyDevicesPayload(data)
   } catch (e) {
@@ -425,6 +509,27 @@ const loadDevices = async () => {
       pendingDevicesReload = false
       void loadDevices()
     }
+  }
+}
+
+const applyFilters = () => {
+  currentPage.value = 1
+  loadDevices()
+}
+
+const resetFilters = () => {
+  filterProductKey.value = ''
+  filterKeyword.value = ''
+  filterAuthStatus.value = ''
+  currentPage.value = 1
+  loadDevices()
+}
+
+const loadProductOptions = async () => {
+  try {
+    productOptions.value = await api.getProductOptions()
+  } catch {
+    productOptions.value = []
   }
 }
 
@@ -569,6 +674,7 @@ const onVisibilityChange = () => {
 onMounted(() => {
   reconnectEnabled = true
   document.addEventListener('visibilitychange', onVisibilityChange)
+  void loadProductOptions()
   connectWebSocket()
 })
 
@@ -687,12 +793,64 @@ onUnmounted(() => {
 }
 
 .device-id {
-  font-family: monospace;
-  font-size: 11px;
-  color: #606266;
-  background: #f5f7fa;
+  font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace;
+  font-size: var(--table-mono-font-size);
+  color: var(--color-text-secondary);
+  background: var(--color-bg-secondary);
   padding: 2px 6px;
-  border-radius: 4px;
+  border-radius: var(--radius-sm);
+}
+
+.device-id-toggle {
+  cursor: pointer;
+  white-space: nowrap;
+}
+
+.device-id-toggle:hover {
+  color: var(--color-primary);
+}
+
+.filter-row {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  margin-bottom: 12px;
+}
+
+.product-cell {
+  display: flex;
+  flex-direction: row;
+  align-items: center;
+  gap: 6px;
+  min-width: 0;
+}
+
+.product-name {
+  font-size: var(--table-font-size);
+  color: var(--color-text-primary);
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.product-cell .el-tag {
+  flex-shrink: 0;
+}
+
+.device-section :deep(.remark-cell .cell) {
+  overflow: visible;
+}
+
+.device-section :deep(.remark-cell .el-input) {
+  width: 100%;
+}
+
+.product-key {
+  font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace;
+  font-size: var(--table-mono-font-size);
+  color: var(--color-text-tertiary);
+  word-break: break-all;
 }
 
 .op-btns {

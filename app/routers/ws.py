@@ -5,8 +5,10 @@ from fastapi import APIRouter, WebSocket, WebSocketDisconnect
 
 from app.auth import get_user_by_username, verify_token
 from app.database import SessionLocal
+from app.device_query import list_devices_payload, serialize_device
+from app.models import Product
+from app.product_resolve import build_product_key_map
 from app.models import Device, OperationLog
-from app.schemas import DeviceResponse
 from app.ws_manager import device_ws_manager
 
 router = APIRouter(tags=["管理"])
@@ -25,7 +27,7 @@ async def device_events(websocket: WebSocket):
                 db = SessionLocal()
                 try:
                     user = get_user_by_username(db, username)
-                    if user and user.is_active:
+                    if user and user.is_active and user.is_admin:
                         actor = user.username
                 finally:
                     db.close()
@@ -41,13 +43,12 @@ async def device_events(websocket: WebSocket):
                          
     db = SessionLocal()
     try:
-        query = db.query(Device)
-        total = query.count()
-        devices = query.order_by(Device.updated_at.desc()).limit(50).all()
+        initial = list_devices_payload(db, page=1, page_size=50)
         initial_payload = {
             "type": "devices_list",
-            "total": total,
-            "devices": [DeviceResponse.model_validate(d).model_dump(mode="json") for d in devices]
+            "total": initial["total"],
+            "summary": initial["summary"],
+            "devices": initial["devices"],
         }
         await websocket.send_json(initial_payload)
     finally:
@@ -69,41 +70,28 @@ async def device_events(websocket: WebSocket):
                 page_size = max(1, min(200, int(data.get("page_size", 50))))
                 sort_by = data.get("sort_by", "updated_at")
                 sort_order = data.get("sort_order", "desc")
-                
+                product_key = data.get("product_key") or None
+                keyword = data.get("keyword") or None
+                auth_status = data.get("auth_status") or None
+
                 db = SessionLocal()
                 try:
-                    query = db.query(Device)
-                    total = query.count()
-                    
-                            
-                    if sort_by == "created_at":
-                        sort_field = Device.created_at
-                    elif sort_by == "updated_at":
-                        sort_field = Device.updated_at
-                    elif sort_by == "last_check":
-                        sort_field = Device.last_check
-                    elif sort_by == "device_id":
-                        sort_field = Device.device_id
-                    elif sort_by == "software_name":
-                        sort_field = Device.software_name
-                    elif sort_by == "is_authorized":
-                        sort_field = Device.is_authorized
-                    else:
-                        sort_field = Device.updated_at
-                    
-                          
-                    if sort_order.lower() == "asc":
-                        query = query.order_by(sort_field.asc())
-                    else:
-                        query = query.order_by(sort_field.desc())
-                    
-                    devices = query.offset((page - 1) * page_size).limit(page_size).all()
-                    
+                    result = list_devices_payload(
+                        db,
+                        page=page,
+                        page_size=page_size,
+                        sort_by=sort_by,
+                        sort_order=sort_order,
+                        product_key=product_key,
+                        keyword=keyword,
+                        auth_status=auth_status,
+                    )
                     payload = {
                         "type": "devices_list",
                         "request_id": request_id,
-                        "total": total,
-                        "devices": [DeviceResponse.model_validate(d).model_dump(mode="json") for d in devices]
+                        "total": result["total"],
+                        "summary": result["summary"],
+                        "devices": result["devices"],
                     }
                     await websocket.send_json(payload)
                 finally:
@@ -155,11 +143,13 @@ async def device_events(websocket: WebSocket):
                         ))
                         db.commit()
                         db.refresh(device)
-                        
+                        products = db.query(Product).all()
+                        product_map = build_product_key_map(products)
+
                         payload = {
                             "type": "device_updated",
                             "request_id": request_id,
-                            "device": DeviceResponse.model_validate(device).model_dump(mode="json")
+                            "device": serialize_device(device, product_map),
                         }
                         await websocket.send_json(payload)
                         await device_ws_manager.broadcast({

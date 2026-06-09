@@ -5,26 +5,29 @@
         <div class="card-header">
           <div class="header-meta">
             <h2>审计日志</h2>
-            <p>记录后台关键操作行为</p>
           </div>
         </div>
 
-        <div class="table-wrap">
-          <el-table :data="logs" v-loading="loading">
-            <el-table-column prop="created_at" label="时间" width="170">
-              <template #default="{ row }">{{ formatDate(row.created_at) }}</template>
-            </el-table-column>
-            <el-table-column prop="username" label="操作人" width="120" />
-            <el-table-column prop="action" label="动作" width="140" />
-            <el-table-column prop="target_type" label="对象类型" width="120" />
-            <el-table-column prop="target_id" label="对象ID" min-width="180" show-overflow-tooltip />
-            <el-table-column prop="detail" label="详情" min-width="260" show-overflow-tooltip>
-              <template #default="{ row }">
-                <code>{{ formatDetail(row.detail) }}</code>
-              </template>
-            </el-table-column>
-          </el-table>
-        </div>
+        <el-table
+          :data="logs"
+          v-loading="loading"
+          row-key="id"
+          stripe
+          border
+          class="admin-data-table"
+          empty-text="暂无日志"
+        >
+          <el-table-column label="时间" width="170">
+            <template #default="{ row }">{{ formatDate(row.created_at) }}</template>
+          </el-table-column>
+          <el-table-column prop="username" label="操作人" width="120" show-overflow-tooltip />
+          <el-table-column prop="action" label="动作" width="140" show-overflow-tooltip />
+          <el-table-column prop="target_type" label="对象类型" width="120" />
+          <el-table-column prop="target_id" label="对象ID" min-width="180" show-overflow-tooltip />
+          <el-table-column label="详情" min-width="260" show-overflow-tooltip>
+            <template #default="{ row }">{{ formatDetail(row.detail) }}</template>
+          </el-table-column>
+        </el-table>
 
         <div class="pager">
           <el-pagination
@@ -98,10 +101,6 @@ onMounted(fetchLogs)
   margin: 2px 0 0;
   font-size: 12px;
   color: var(--color-text-tertiary);
-}
-
-.table-wrap {
-  overflow-x: auto;
 }
 
 .pager {

@@ -92,7 +92,8 @@ export interface AuthorizationInfo {
   message: string;
   device_id: string;
   server_url: string;
-  remaining_time?: string;
+  /** 本地授权缓存剩余有效时间，非服务端授权/试用到期 */
+  cache_remaining_time?: string;
   cache_valid?: boolean;
   cached_at?: number;
   cached_at_readable?: string;

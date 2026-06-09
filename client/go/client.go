@@ -35,10 +35,11 @@ var heartbeatHTTPClient = &http.Client{
 }
 
 type AuthResult struct {
-	Authorized bool   `json:"authorized"`
-	Message    string `json:"message"`
-	Success    bool   `json:"success"`
-	FromCache  bool   `json:"from_cache"`
+	Authorized  bool   `json:"authorized"`
+	Message     string `json:"message"`
+	Success     bool   `json:"success"`
+	FromCache   bool   `json:"from_cache"`
+	IsAuthError bool   `json:"is_auth_error,omitempty"`
 }
 
 type AuthorizationInfo struct {
@@ -48,7 +49,7 @@ type AuthorizationInfo struct {
 	Message          string  `json:"message"`
 	DeviceID         string  `json:"device_id"`
 	ServerURL        string  `json:"server_url"`
-	RemainingTime    string  `json:"remaining_time,omitempty"`
+	CacheRemainingTime string `json:"cache_remaining_time,omitempty"`
 	CacheValid       bool    `json:"cache_valid,omitempty"`
 	CachedAt         float64 `json:"cached_at,omitempty"`
 	CachedAtReadable string  `json:"cached_at_readable,omitempty"`
@@ -132,7 +133,7 @@ func NewAuthClient(config AuthClientConfig) (*AuthClient, error) {
 	if config.ClientSecret == "" {
 		config.ClientSecret = os.Getenv("CLIENT_SECRET")
 		if config.ClientSecret == "" {
-			return nil, errors.New("client_secret未配置！请在初始化时传入client_secret参数，或设置环境变量CLIENT_SECRET")
+			return nil, errors.New("client_secret未配置！请在初始化时传入（发行包中硬编码），或开发时设置环境变量CLIENT_SECRET")
 		}
 	}
 
@@ -271,6 +272,16 @@ func (c *AuthClient) errorResult(msg string) *AuthResult {
 	}
 }
 
+func (c *AuthClient) authErrorResult(msg string) *AuthResult {
+	return &AuthResult{
+		Authorized:  false,
+		Message:     msg,
+		Success:     false,
+		FromCache:   false,
+		IsAuthError: true,
+	}
+}
+
 func (c *AuthClient) executeHeartbeat(di map[string]interface{}, nextHeartbeat int) *AuthResult {
 	var sk map[string]interface{}
 	if raw, ok := di["sdk"].(map[string]interface{}); ok && raw != nil {
@@ -319,6 +330,9 @@ func (c *AuthClient) executeHeartbeat(di map[string]interface{}, nextHeartbeat i
 			}
 		}
 		c.logDebug(fmt.Sprintf("在线订阅失败，status=%d, message=%s", resp.StatusCode(), errorMsg))
+		if resp.StatusCode() == http.StatusForbidden {
+			return c.authErrorResult(errorMsg)
+		}
 		return c.errorResult(errorMsg)
 	}
 
@@ -538,7 +552,7 @@ func (c *AuthClient) CheckAuthorization(forceOnline bool) *AuthResult {
 		return onlineResult
 	}
 
-	if cacheValid {
+	if cacheValid && !onlineResult.IsAuthError {
 		remaining := c.formatRemainingTime(cacheData.LastSuccessAt)
 		c.logDebug(fmt.Sprintf("在线订阅失败，但缓存有效，使用缓存结果，订阅剩余时间: %s", remaining))
 		return &AuthResult{
@@ -597,7 +611,7 @@ func (c *AuthClient) CheckAuthorizationProgressive(forceOnline bool) *AuthResult
 		return onlineResult
 	}
 
-	if cacheValid {
+	if cacheValid && !onlineResult.IsAuthError {
 		remaining := c.formatRemainingTime(cacheData.LastSuccessAt)
 		c.logDebug(fmt.Sprintf("在线订阅失败，但缓存有效，使用缓存结果，订阅剩余时间: %s", remaining))
 		return &AuthResult{
@@ -663,7 +677,7 @@ func (c *AuthClient) GetAuthorizationInfo() *AuthorizationInfo {
 			DeviceID:        c.deviceID,
 			ServerURL:       c.serverURL,
 			CachedAt:        cache.LastSuccessAt,
-			RemainingTime:   c.formatRemainingTime(cache.LastSuccessAt),
+			CacheRemainingTime: c.formatRemainingTime(cache.LastSuccessAt),
 			CacheValid:      c.cache.IsCacheValid(),
 		}
 		if cache.LastSuccessAt > 0 {
@@ -677,7 +691,7 @@ func (c *AuthClient) GetAuthorizationInfo() *AuthorizationInfo {
 			Message:         "无本地授权缓存",
 			DeviceID:        c.deviceID,
 			ServerURL:       c.serverURL,
-			RemainingTime:   "无缓存",
+			CacheRemainingTime: "无缓存",
 			CacheValid:      false,
 		}
 	}

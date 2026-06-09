@@ -2,55 +2,46 @@ from fastapi import APIRouter, Depends, HTTPException, Query
 from sqlalchemy.orm import Session
 from datetime import datetime, timedelta
 from app.database import get_db
-from app.models import User, Config, OperationLog
+from app.models import User, OperationLog
 from app.schemas import (
     ConfigUpdate,
     UserResponse, UserCreate, UserUpdate, OperationLogResponse, OperationLogListResponse
 )
-from app.auth import get_current_user, get_password_hash
+from app.auth import get_password_hash
 from app.audit import add_operation_log
-from app.coerce import coerce_boolish
 from app.deps import require_admin
+from app.rate_limit import load_rate_limit_config, save_rate_limit_config
 import logging
 
 logger = logging.getLogger(__name__)
 router = APIRouter(prefix="/api/admin", tags=["管理"])
 
-DEFAULT_CONFIGS = {
-    "default_authorization": True
-}
-
 @router.get("/config")
 async def get_configs(
     db: Session = Depends(get_db),
-    _: User = Depends(get_current_user),
+    _: User = Depends(require_admin),
 ):
-    config = db.query(Config).filter(Config.key == "default_authorization").first()
-    if not config:
-        return DEFAULT_CONFIGS.copy()
-    return {"default_authorization": coerce_boolish(config.value)}
+    return {"rate_limit": load_rate_limit_config(db)}
 
 @router.put("/config")
 async def update_configs(
     config_update: ConfigUpdate,
     db: Session = Depends(get_db),
-    current_user: User = Depends(get_current_user)
+    current_user: User = Depends(require_admin),
 ):
-    allowed_keys = set(DEFAULT_CONFIGS.keys())
-    normalized = {}
-    for key, value in config_update.configs.items():
-        if key not in allowed_keys:
-            continue
-        if key == "default_authorization":
-            normalized[key] = coerce_boolish(value)
+    rate_limit_updates = None
 
-    for key, value in normalized.items():
-        config = db.query(Config).filter(Config.key == key).first()
-        if config:
-            config.value = value
-        else:
-            new_config = Config(key=key, value=value)
-            db.add(new_config)
+    for key, value in config_update.configs.items():
+        if key == "rate_limit" and isinstance(value, dict):
+            rate_limit_updates = value
+
+    rate_limit_saved = None
+    if rate_limit_updates is not None:
+        rate_limit_saved = save_rate_limit_config(db, rate_limit_updates)
+
+    log_detail: dict = {}
+    if rate_limit_saved is not None:
+        log_detail["rate_limit"] = rate_limit_saved
 
     add_operation_log(
         db,
@@ -58,7 +49,7 @@ async def update_configs(
         action="update_config",
         target_type="config",
         target_id=None,
-        detail={"configs": normalized}
+        detail=log_detail,
     )
     
     try:

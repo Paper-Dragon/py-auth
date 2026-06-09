@@ -55,6 +55,11 @@
   --transition-fast: 0.2s ease;
   --transition-base: 0.3s ease;
   --transition-slow: 0.5s ease;
+
+  /* 数据表格 */
+  --table-font-size: 13px;
+  --table-header-font-size: 13px;
+  --table-mono-font-size: 12px;
 }
 
 

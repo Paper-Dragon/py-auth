@@ -4,8 +4,9 @@
 
 | 文档 | 说明 |
 |------|------|
-| [client/README.md](/e:/py-auth/client/README.md) | SDK 总览与三端方法对照 |
-| [docs/dev/client-storage.md](/e:/py-auth/docs/dev/client-storage.md) | 存储、状态文件、加解密与 `device_id` 约定 |
+| [client/README.md](../README.md) | SDK 总览与三端方法对照 |
+| [docs/dev/client-storage.md](../../docs/dev/client-storage.md) | 存储、状态文件、加解密与 `device_id` 约定 |
+| [docs/dev/payment.md](../../docs/dev/payment.md) | 付费授权与公开支付页 |
 
 ## 安装
 
@@ -22,7 +23,7 @@ go get github.com/Paper-Dragon/py-auth/client/go
 | `SoftwareVersion` | 可选 | 软件版本 |
 | `DeviceID` | 可选 | 省略时自动生成或复用 |
 | `DeviceInfo` | 可选 | 为 `nil` 时自动采集 |
-| `ClientSecret` | 条件必填 | 参数可为空，但运行时必须通过参数或环境变量 `CLIENT_SECRET` 提供 |
+| `ClientSecret` | 条件必填 | 可信接入标识，硬编码在发行包；服务端信任该值确定套餐 plan。开发时可用 `CLIENT_SECRET` |
 | `CacheValidityDays` | 可选 | 默认 `7`，建议传正整数；`0` 使用默认值 |
 | `CheckIntervalDays` | 可选 | 默认 `2`，建议传正整数；`0` 使用默认值 |
 | `Debug` | 可选 | 是否输出调试日志 |
@@ -71,7 +72,7 @@ if r != nil && r.Success && r.Authorized {
 ```go
 info := c.GetAuthorizationInfo()
 if info != nil {
-	// info.Authorized, info.Message, info.DeviceID, info.RemainingTime
+	// info.Authorized, info.Message, info.DeviceID, info.CacheRemainingTime
 }
 ```
 

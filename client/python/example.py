@@ -21,15 +21,17 @@ def _client_secret() -> Optional[str]:
 def main() -> None:
     client = AuthClient(
         server_url="http://localhost:8000",
-        software_name="软件python示例",
+        software_name="aaaa",
         software_version="0.0.1",
-        client_secret=_client_secret(),
+        # client_secret=_client_secret(),
+        client_secret="sk_8860d2a2579928fed1f412e07501eb3e",
         debug=True,
     )
     try:
         client.require_authorization()
     except AuthorizationError as e:
         print(f"授权失败: {e}")
+        return
     info = client.get_authorization_info()
     if not client.debug:
         print(json.dumps(info, ensure_ascii=False, indent=2))

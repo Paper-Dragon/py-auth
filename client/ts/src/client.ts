@@ -50,7 +50,7 @@ export class AuthClient {
     const secret = config.clientSecret ?? process.env.CLIENT_SECRET ?? "";
     if (!secret) {
       throw new Error(
-        "CLIENT_SECRET未配置！请在初始化时传入clientSecret参数，或设置环境变量CLIENT_SECRET。这是安全要求，必须配置。",
+        "client_secret未配置！请在初始化时传入（发行包中硬编码），或开发时设置环境变量CLIENT_SECRET。",
       );
     }
 
@@ -291,7 +291,7 @@ export class AuthClient {
       return onlineResult;
     }
 
-    if (cacheValid && cacheData) {
+    if (cacheValid && cacheData && !onlineResult.is_auth_error) {
       const remaining = this.formatRemainingTime(cacheData.cachedAt);
       this.logDebug(`在线订阅失败，但缓存有效，使用缓存结果，订阅剩余时间: ${remaining}`);
       return {
@@ -366,7 +366,7 @@ export class AuthClient {
       return onlineResult;
     }
 
-    if (cacheValid && cacheData) {
+    if (cacheValid && cacheData && !onlineResult.is_auth_error) {
       const remaining = this.formatRemainingTime(cacheData.cachedAt);
       this.logDebug(`在线订阅失败，但缓存有效，使用缓存结果，订阅剩余时间: ${remaining}`);
       return {
@@ -437,7 +437,7 @@ export class AuthClient {
           message: cache.message,
           device_id: this.deviceId,
           server_url: this.serverUrl,
-          remaining_time: this.formatRemainingTime(cache.cachedAt),
+          cache_remaining_time: this.formatRemainingTime(cache.cachedAt),
           cache_valid: this.cache.isCacheTTLValid(cache),
           cached_at: cache.cachedAt,
           cached_at_readable:
@@ -452,7 +452,7 @@ export class AuthClient {
           message: "无本地授权缓存",
           device_id: this.deviceId,
           server_url: this.serverUrl,
-          remaining_time: "无缓存",
+          cache_remaining_time: "无缓存",
           cache_valid: false,
         };
 

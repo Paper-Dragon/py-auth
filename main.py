@@ -4,9 +4,12 @@ from fastapi.staticfiles import StaticFiles
 from fastapi.responses import FileResponse
 from dotenv import load_dotenv
 from app.database import engine, Base, SessionLocal
+from app.db_migrate import migrate_schema
 from app.routers import auth, admin
 from app.routers import ws as ws_router
 from app.routers import user as user_router
+from app.routers import products as products_router
+from app.routers import payment as payment_router
 from app.auth import init_admin_user
 from app.middleware import setup_cors
 import logging
@@ -41,6 +44,7 @@ def init_database():
 def _do_init():
     """执行数据库初始化"""
     Base.metadata.create_all(bind=engine)
+    migrate_schema()
     logger.info("数据库表创建成功")
     db = SessionLocal()
     try:
@@ -69,6 +73,8 @@ app.include_router(auth.router)
 app.include_router(admin.router)
 app.include_router(user_router.router)
 app.include_router(ws_router.router)
+app.include_router(products_router.router)
+app.include_router(payment_router.router)
 
         
 web_dist_path = os.path.join(os.path.dirname(__file__), "web", "dist")

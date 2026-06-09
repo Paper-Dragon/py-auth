@@ -5,7 +5,6 @@
         <div class="card-header">
           <div class="header-meta">
             <h2>用户列表</h2>
-            <p>管理后台账户与权限状态</p>
           </div>
           <div class="header-actions">
             <el-button type="primary" @click="openCreateDialog">
@@ -15,42 +14,44 @@
           </div>
         </div>
 
-        <div class="table-wrap">
-          <el-table :data="users" v-loading="loading">
-          <el-table-column prop="username" label="用户名"></el-table-column>
-          <el-table-column prop="is_admin" label="管理员" width="100" align="center">
+        <el-table
+          :data="users"
+          v-loading="loading"
+          row-key="id"
+          stripe
+          border
+          class="admin-data-table"
+          empty-text="暂无用户"
+        >
+          <el-table-column prop="username" label="用户名" min-width="140" show-overflow-tooltip />
+          <el-table-column label="管理员" min-width="88" align="center">
             <template #default="{ row }">
-              <el-tag :type="row.is_admin ? 'success' : 'info'">{{ row.is_admin ? '是' : '否' }}</el-tag>
+              <el-tag :type="row.is_admin ? 'success' : 'info'" size="small">
+                {{ row.is_admin ? '是' : '否' }}
+              </el-tag>
             </template>
           </el-table-column>
-          <el-table-column prop="is_active" label="状态" width="100" align="center">
+          <el-table-column label="状态" min-width="88" align="center">
             <template #default="{ row }">
-              <el-tag :type="row.is_active ? 'success' : 'danger'">{{ row.is_active ? '已激活' : '已禁用' }}</el-tag>
+              <el-tag :type="row.is_active ? 'success' : 'danger'" size="small">
+                {{ row.is_active ? '已激活' : '已禁用' }}
+              </el-tag>
             </template>
           </el-table-column>
-          <el-table-column prop="created_at" label="创建时间">
-            <template #default="{ row }">
-              {{ new Date(row.created_at).toLocaleString() }}
-            </template>
+          <el-table-column label="创建时间" min-width="160">
+            <template #default="{ row }">{{ formatTime(row.created_at) }}</template>
           </el-table-column>
-          <el-table-column label="操作" width="150" align="center">
+          <el-table-column label="操作" min-width="120" align="center">
             <template #default="{ row }">
               <el-button link type="primary" size="small" @click="openEditDialog(row)">编辑</el-button>
-              <el-popconfirm
-                title="确定要删除此用户吗？"
-                confirm-button-text="确定"
-                cancel-button-text="取消"
-                @confirm="handleDelete(row.id)"
-                :disabled="isCurrentUser(row)"
-              >
+              <el-popconfirm title="确定要删除此用户吗？" @confirm="handleDelete(row.id)">
                 <template #reference>
                   <el-button link type="danger" size="small" :disabled="isCurrentUser(row)">删除</el-button>
                 </template>
               </el-popconfirm>
             </template>
           </el-table-column>
-          </el-table>
-        </div>
+        </el-table>
 
         
         <el-dialog v-model="dialogVisible" :title="dialogTitle" width="90%" style="max-width: 450px;" @close="resetForm">
@@ -104,7 +105,12 @@ const rules = {
 }
 
 const isEditMode = computed(() => !!form.value.id)
-const dialogTitle = computed(() => isEditMode.value ? '编辑用户' : '新建用户')
+const dialogTitle = computed(() => (isEditMode.value ? '编辑用户' : '新建用户'))
+
+const formatTime = (value) => {
+  if (!value) return '-'
+  return new Date(value).toLocaleString()
+}
 
 const fetchUsers = async () => {
   loading.value = true
@@ -189,44 +195,9 @@ onMounted(fetchUsers)
 </script>
 
 <style scoped>
-.header-meta h2 {
-  margin: 0;
-  font-size: 16px;
-  color: var(--color-text-primary);
-}
-
-.header-meta p {
-  margin: 2px 0 0;
-  font-size: 12px;
-  color: var(--color-text-tertiary);
-}
-
-.header-actions {
-  display: flex;
-  justify-content: flex-end;
-}
-
-.table-wrap {
-  overflow-x: auto;
-}
-
 .el-button--link {
   padding-left: 6px;
   padding-right: 6px;
 }
 
-@media (max-width: 768px) {
-  .card-header {
-    align-items: flex-start;
-    flex-direction: column;
-  }
-
-  .header-actions {
-    width: 100%;
-  }
-
-  .header-actions .el-button {
-    width: 100%;
-  }
-}
 </style>

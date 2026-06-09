@@ -14,6 +14,7 @@ export function notifySessionExpired() {
   api.setToken(null)
   try {
     localStorage.removeItem('username')
+    localStorage.removeItem('isAdmin')
   } catch (_) {
   }
   onSessionExpired?.()
@@ -113,6 +114,11 @@ class ApiService {
 
   logout() {
     this.setToken(null)
+    try {
+      localStorage.removeItem('username')
+      localStorage.removeItem('isAdmin')
+    } catch (_) {
+    }
   }
 
   
@@ -167,6 +173,137 @@ class ApiService {
 
   async getMe() {
     return this.request('/user/me')
+  }
+
+  async getProducts() {
+    return this.request('/admin/products')
+  }
+
+  async getProductOptions() {
+    return this.request('/admin/products/options')
+  }
+
+  async createProduct(productData) {
+    return this.request('/admin/products', {
+      method: 'POST',
+      body: JSON.stringify(productData)
+    })
+  }
+
+  async updateProduct(productId, productData) {
+    return this.request(`/admin/products/${productId}`, {
+      method: 'PUT',
+      body: JSON.stringify(productData)
+    })
+  }
+
+  async deleteProduct(productId) {
+    return this.request(`/admin/products/${productId}`, {
+      method: 'DELETE'
+    })
+  }
+
+  async generateProductKey() {
+    return this.request('/admin/products/generate-key', {
+      method: 'POST'
+    })
+  }
+
+  async regenerateProductClientSecret(productId) {
+    return this.request(`/admin/products/${productId}/regenerate-client-secret`, {
+      method: 'POST'
+    })
+  }
+
+  async getEpayConfig() {
+    return this.request('/admin/payment/epay')
+  }
+
+  async updateEpayConfig(configData) {
+    return this.request('/admin/payment/epay', {
+      method: 'PUT',
+      body: JSON.stringify(configData)
+    })
+  }
+
+  async getPaymentOrders({
+    page = 1,
+    pageSize = 20,
+    status = '',
+    payType = '',
+    keyword = '',
+    testOnly = '',
+  } = {}) {
+    const params = new URLSearchParams({
+      page: String(page),
+      page_size: String(pageSize),
+    })
+    if (status) params.set('status', status)
+    if (payType) params.set('pay_type', payType)
+    if (keyword) params.set('keyword', keyword)
+    if (testOnly !== '' && testOnly !== null && testOnly !== undefined) {
+      params.set('test_only', String(testOnly))
+    }
+    return this.request(`/admin/payment/orders?${params.toString()}`)
+  }
+
+  async syncPaymentOrder(outTradeNo) {
+    return this.request(`/admin/payment/orders/${encodeURIComponent(outTradeNo)}/sync`, {
+      method: 'POST',
+    })
+  }
+
+  async getPaymentDeviceContext(deviceId) {
+    const params = new URLSearchParams({ device_id: deviceId })
+    return this.request(`/payment/device-context?${params}`)
+  }
+
+  async getPaymentChannels() {
+    return this.request('/payment/channels')
+  }
+
+  async createPaymentOrder(orderData) {
+    return this.request('/payment/orders', {
+      method: 'POST',
+      body: JSON.stringify(orderData)
+    })
+  }
+
+  async getPaymentOrder(outTradeNo, sync = false, deviceId = '') {
+    const params = new URLSearchParams()
+    if (sync) params.set('sync', 'true')
+    const did = String(deviceId || '').trim()
+    if (did) params.set('device_id', did)
+    const qs = params.toString() ? `?${params.toString()}` : ''
+    return this.request(`/payment/orders/${encodeURIComponent(outTradeNo)}${qs}`)
+  }
+
+  async testEpayConnection(payload) {
+    return this.request('/admin/payment/epay/test-connection', {
+      method: 'POST',
+      body: JSON.stringify(payload)
+    })
+  }
+
+  async testEpayPayment(payload) {
+    return this.request('/admin/payment/epay/test-pay', {
+      method: 'POST',
+      body: JSON.stringify(payload)
+    })
+  }
+
+  async getEpayReturn(query = {}, deviceId = '') {
+    const params = new URLSearchParams()
+    for (const [key, value] of Object.entries(query)) {
+      if (key === 'device_id') continue
+      if (value !== undefined && value !== null && value !== '') {
+        params.set(key, String(value))
+      }
+    }
+    const did = String(deviceId || '').trim()
+    if (did) params.set('device_id', did)
+    const qs = params.toString()
+    return this.request(`/payment/epay/return${qs ? `?${qs}` : ''}`)
   }
 }
 

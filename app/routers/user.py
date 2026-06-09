@@ -5,6 +5,7 @@ from app.database import get_db
 from app.models import User
 from app.audit import add_operation_log
 from app.schemas import UserCreate, UserLogin, UserResponse, TokenResponse, ChangePasswordRequest
+from app.rate_limit import require_rate_limit
 from app.auth import (
     authenticate_user, 
     create_access_token, 
@@ -20,7 +21,8 @@ router = APIRouter(prefix="/api/user", tags=["用户认证"])
 @router.post("/login", response_model=TokenResponse)
 async def login(
     user_data: UserLogin,
-    db: Session = Depends(get_db)
+    db: Session = Depends(get_db),
+    _: None = Depends(require_rate_limit("login")),
 ):
     user = authenticate_user(db, user_data.username, user_data.password)
     if not user:
