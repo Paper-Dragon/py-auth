@@ -9,6 +9,8 @@ import base64
 import hashlib
 import json
 import logging
+import threading
+import time
 from typing import Any, Dict, Optional
 
 from cryptography.fernet import Fernet
@@ -20,6 +22,11 @@ from app.models import Product
 logger = logging.getLogger(__name__)
 
 _cipher_cache: dict[str, Fernet] = {}
+
+_SECRET_CACHE_TTL = 30  # seconds
+_secret_product_cache: list[tuple[str, Product]] | None = None
+_secret_cache_ts: float = 0.0
+_secret_cache_lock = threading.Lock()
 
 
 def _build_cipher(client_secret: str) -> Optional[Fernet]:
@@ -70,30 +77,44 @@ def encrypt_response_data(
         return None
 
 
-def collect_client_secrets(db: Session) -> list[str]:
-    """收集可用于心跳加解密的 client_secret（默认产品读 CLIENT_SECRET，其余读产品表）。"""
+def invalidate_secret_cache() -> None:
+    """产品变更时调用，立即失效 client_secret 缓存。"""
+    global _secret_product_cache, _secret_cache_ts
+    with _secret_cache_lock:
+        _secret_product_cache = None
+        _secret_cache_ts = 0.0
+
+
+def _load_secret_product_pairs(db: Session) -> list[tuple[str, Product]]:
+    """从数据库加载 (client_secret, product) 列表，带 TTL 缓存。"""
+    global _secret_product_cache, _secret_cache_ts
+    now = time.time()
+    if _secret_product_cache is not None and (now - _secret_cache_ts) < _SECRET_CACHE_TTL:
+        return _secret_product_cache
+
     from app.product_utils import client_secret_for_product
 
     seen: set[str] = set()
-    secrets: list[str] = []
-
-    def add(value: str | None) -> None:
-        secret = (value or "").strip()
-        if secret and secret not in seen:
-            seen.add(secret)
-            secrets.append(secret)
-
+    pairs: list[tuple[str, Product]] = []
     for product in db.query(Product).all():
-        add(client_secret_for_product(product))
-    return secrets
+        secret = (client_secret_for_product(product) or "").strip()
+        if not secret or secret in seen:
+            continue
+        seen.add(secret)
+        pairs.append((secret, product))
+
+    with _secret_cache_lock:
+        _secret_product_cache = pairs
+        _secret_cache_ts = now
+    return pairs
 
 
 def try_decrypt_heartbeat(
     db: Session, encrypted_data: str
-) -> tuple[Optional[Dict[str, Any]], str]:
-    """用 client_secret 逐一尝试解密；software_name 在加密载荷内。"""
-    for client_secret in collect_client_secrets(db):
-        data = decrypt_request_data(encrypted_data, client_secret)
+) -> tuple[Optional[Dict[str, Any]], str, Optional[Product]]:
+    """用各产品的 client_secret 逐一尝试解密，返回 (data, client_secret, product)。"""
+    for secret, product in _load_secret_product_pairs(db):
+        data = decrypt_request_data(encrypted_data, secret)
         if data:
-            return data, client_secret
-    return None, ""
+            return data, secret, product
+    return None, "", None

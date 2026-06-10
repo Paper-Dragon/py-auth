@@ -5,6 +5,7 @@ from fastapi import APIRouter, Depends, HTTPException
 from sqlalchemy.orm import Session
 
 from app.audit import add_operation_log
+from app.crypto import invalidate_secret_cache
 from app.database import get_db
 from app.deps import require_admin
 from app.epay import EPAY_PAY_TYPES
@@ -203,6 +204,7 @@ async def create_product(
         },
     )
     db.commit()
+    invalidate_secret_cache()
     db.refresh(product)
     return _to_product_response(product, 0)
 
@@ -263,6 +265,7 @@ async def update_product(
         detail={"updated_fields": list(updates.keys()), "product_id": product_id},
     )
     db.commit()
+    invalidate_secret_cache()
     db.refresh(product)
 
     return _to_product_response(product, count_devices_for_product(db, product))
@@ -294,6 +297,7 @@ async def regenerate_product_client_secret(
         detail={"product_id": product_id},
     )
     db.commit()
+    invalidate_secret_cache()
     db.refresh(product)
 
     return _to_product_response(product, count_devices_for_product(db, product))
@@ -322,4 +326,5 @@ async def delete_product(
         detail={"product_id": product_id},
     )
     db.commit()
+    invalidate_secret_cache()
     return {"message": "产品已删除"}

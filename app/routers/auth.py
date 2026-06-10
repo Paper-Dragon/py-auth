@@ -13,7 +13,6 @@ from app.product_auth import (
     evaluate_device_authorization,
     resolve_initial_authorization,
 )
-from app.product_resolve import resolve_product_by_client_secret
 from app.product_utils import (
     CLIENT_SOFTWARE_NAME_MISMATCH_DETAIL,
     client_software_name_matches_product,
@@ -104,16 +103,9 @@ async def heartbeat(
     _: None = Depends(require_rate_limit("heartbeat")),
 ):
     """设备心跳：client_secret 解析产品 UUID 并执行授权策略。"""
-    data, client_secret = try_decrypt_heartbeat(db, request.encrypted_data)
-    if not data:
+    data, client_secret, product = try_decrypt_heartbeat(db, request.encrypted_data)
+    if not data or not product:
         raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="解密失败，无法验证设备")
-
-    product = resolve_product_by_client_secret(db, client_secret)
-    if not product:
-        raise HTTPException(
-            status_code=status.HTTP_403_FORBIDDEN,
-            detail="无效的 client_secret，无法解析产品 UUID",
-        )
 
     auth_request = DeviceAuthRequest(**data)
     if not client_software_name_matches_product(product, auth_request.software_name):
@@ -151,16 +143,9 @@ async def get_plan_info(
     _: None = Depends(require_rate_limit("heartbeat")),
 ):
     """查询 client_secret 对应产品的套餐信息（加密请求/响应）。"""
-    data, client_secret = try_decrypt_heartbeat(db, request.encrypted_data)
-    if not data:
+    data, client_secret, product = try_decrypt_heartbeat(db, request.encrypted_data)
+    if not data or not product:
         raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="解密失败，无法验证客户端")
-
-    product = resolve_product_by_client_secret(db, client_secret)
-    if not product:
-        raise HTTPException(
-            status_code=status.HTTP_403_FORBIDDEN,
-            detail="无效的 client_secret，无法解析产品 UUID",
-        )
 
     software_name = data.get("software_name")
     if software_name is not None and not client_software_name_matches_product(product, software_name):
