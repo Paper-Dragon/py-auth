@@ -23,9 +23,20 @@
 
 | 语义 | Python | Go | TypeScript |
 |------|--------|----|------------|
+| 设备 ID / 服务地址 | `device_id` / `server_url` | `DeviceID()` / `ServerURL()` | `deviceId` / `serverUrl` |
 | 在线校验授权 | `check_authorization` | `CheckAuthorization` | `checkAuthorization` |
+| 渐进式在线校验 | `check_authorization_progressive` | `CheckAuthorizationProgressive` | `checkAuthorizationProgressive` |
 | 要求授权通过 | `require_authorization` | `RequireAuthorization` | `requireAuthorization` |
+| 要求授权（可不抛异常） | `require_authorization(raise_exception=False)` | `RequireAuthorizationEx(forceOnline, false)` | `requireAuthorization({ raiseException: false })` |
+| 本地快照可软启动 | `can_soft_launch` | `CanSoftLaunch` | `canSoftLaunch` |
+| 后台刷新授权 | `start_background_refresh` | `StartBackgroundRefresh` | `startBackgroundRefresh` |
+| 异步提交在线校验 | `submit_check_authorization` | `SubmitCheckAuthorization` | `submitCheckAuthorization` |
+| 异步提交渐进校验 | `submit_check_authorization_progressive` | `SubmitCheckAuthorizationProgressive` | `submitCheckAuthorizationProgressive` |
+| 异步提交要求授权 | `submit_require_authorization` | `SubmitRequireAuthorization` | `submitRequireAuthorization` |
 | 仅读取本地授权信息 | `get_authorization_info` | `GetAuthorizationInfo` | `getAuthorizationInfo` |
+| 读取缓存详情 | `get_cache_info` | `GetCacheInfo` | `getCacheInfo` |
+| 查询套餐信息（加密 API） | `get_plan_info` | `GetPlanInfo` | `getPlanInfo` |
+| 查询设备付费上下文 | `get_payment_context` | `GetPaymentContext` | `getPaymentContext` |
 | 清除本地缓存 | `clear_cache` | `ClearCache` | `clearCache` |
 | 获取存储根路径 | `get_client_storage_root` | `DefaultClientStorageRoot` | `getClientStorageRoot` |
 
@@ -40,7 +51,10 @@
 仓库内示例：
 
 - `client/python/example.py`
+- `client/python/example_background.py`
 - `client/go/examples/main.go`
+- `client/go/examples/background/main.go`
 - `client/ts/example.ts`
+- `client/ts/example_background.ts`
 
 示例开发时可在 `.env` 配置 `CLIENT_SECRET`；正式发行应将**可信接入标识** `client_secret` 硬编码在源码中，不同套餐使用不同值。

@@ -40,19 +40,64 @@ type AuthResult struct {
 	Success     bool   `json:"success"`
 	FromCache   bool   `json:"from_cache"`
 	IsAuthError bool   `json:"is_auth_error,omitempty"`
+	Plan        string `json:"plan,omitempty"`
 }
 
 type AuthorizationInfo struct {
-	Authorized       bool    `json:"authorized"`
-	Success          bool    `json:"success"`
-	FromCache        bool    `json:"from_cache"`
-	Message          string  `json:"message"`
-	DeviceID         string  `json:"device_id"`
-	ServerURL        string  `json:"server_url"`
-	CacheRemainingTime string `json:"cache_remaining_time,omitempty"`
-	CacheValid       bool    `json:"cache_valid,omitempty"`
-	CachedAt         float64 `json:"cached_at,omitempty"`
-	CachedAtReadable string  `json:"cached_at_readable,omitempty"`
+	Authorized         bool    `json:"authorized"`
+	Success            bool    `json:"success"`
+	FromCache          bool    `json:"from_cache"`
+	Message            string  `json:"message"`
+	DeviceID           string  `json:"device_id"`
+	ServerURL          string  `json:"server_url"`
+	CacheRemainingTime string  `json:"cache_remaining_time,omitempty"`
+	CacheValid         bool    `json:"cache_valid,omitempty"`
+	CachedAt           float64 `json:"cached_at,omitempty"`
+	CachedAtReadable   string  `json:"cached_at_readable,omitempty"`
+	Plan               string  `json:"plan,omitempty"`
+}
+
+type PlanInfo struct {
+	Success      bool   `json:"success"`
+	Message      string `json:"message,omitempty"`
+	DisplayName  string `json:"display_name,omitempty"`
+	SoftwareName string `json:"software_name,omitempty"`
+	AuthMode     string `json:"auth_mode,omitempty"`
+	Plan         string `json:"plan,omitempty"`
+	PlanLabel    string `json:"plan_label,omitempty"`
+	Price        string `json:"price,omitempty"`
+	PayType      string `json:"pay_type,omitempty"`
+	CanPay       bool   `json:"can_pay,omitempty"`
+}
+
+type PaymentContext struct {
+	Success      bool   `json:"success"`
+	Message      string `json:"message,omitempty"`
+	DeviceID     string `json:"device_id,omitempty"`
+	SoftwareName string `json:"software_name,omitempty"`
+	DisplayName  string `json:"display_name,omitempty"`
+	AuthMode     string `json:"auth_mode,omitempty"`
+	Plan         string `json:"plan,omitempty"`
+	PlanLabel    string `json:"plan_label,omitempty"`
+	Price        string `json:"price,omitempty"`
+	PayType      string `json:"pay_type,omitempty"`
+	CanPay       bool   `json:"can_pay,omitempty"`
+}
+
+type CacheInfo struct {
+	Authorized    bool    `json:"authorized,omitempty"`
+	Message       string  `json:"message,omitempty"`
+	CachedAt      float64 `json:"cached_at"`
+	LastSuccessAt float64 `json:"last_success_at"`
+	CacheAgeDays  float64 `json:"cache_age_days"`
+	CacheValid    bool    `json:"cache_valid"`
+	NeedsCheck    bool    `json:"needs_check"`
+	CacheFile     string  `json:"cache_file"`
+}
+
+type BackgroundRefreshHandle struct {
+	Soft bool
+	Done <-chan *AuthResult
 }
 
 type AuthorizationError struct {
@@ -107,8 +152,9 @@ type AuthClient struct {
 	cacheValidityDays            int
 	checkIntervalDays            int
 	debug                        bool
-	stateBundleExistedBeforeInit bool 
-	factsPrefetch chan DeviceFacts 
+	stateBundleExistedBeforeInit bool
+	lastPlan                     string
+	factsPrefetch                chan DeviceFacts
 }
 
 type AuthClientConfig struct {
@@ -359,14 +405,24 @@ func (c *AuthClient) executeHeartbeat(di map[string]interface{}, nextHeartbeat i
 
 	authorized, _ := result["authorized"].(bool)
 	message, _ := result["message"].(string)
+	if plan, ok := result["plan"].(string); ok {
+		plan = strings.TrimSpace(plan)
+		if plan != "" {
+			c.lastPlan = plan
+		}
+	}
 
 	c.logDebug(fmt.Sprintf("在线订阅成功，authorized=%v", authorized))
-	return &AuthResult{
+	authResult := &AuthResult{
 		Authorized: authorized,
 		Message:    message,
 		Success:    true,
 		FromCache:  false,
 	}
+	if c.lastPlan != "" {
+		authResult.Plan = c.lastPlan
+	}
+	return authResult
 }
 
 func (c *AuthClient) checkOnlineLight(nextHeartbeat int) *AuthResult {
@@ -631,38 +687,205 @@ func (c *AuthClient) CheckAuthorizationProgressive(forceOnline bool) *AuthResult
 	return onlineResult
 }
 
-func (c *AuthClient) RequireAuthorization(forceOnline bool) error {
-	result := c.CheckAuthorization(forceOnline)
+func (c *AuthClient) DeviceID() string {
+	return c.deviceID
+}
 
-	if !result.Success || !result.Authorized {
+func (c *AuthClient) ServerURL() string {
+	return c.serverURL
+}
+
+func (c *AuthClient) SoftwareName() string {
+	return c.softwareName
+}
+
+func (c *AuthClient) SoftwareVersion() string {
+	return c.softwareVersion
+}
+
+func (c *AuthClient) Debug() bool {
+	return c.debug
+}
+
+func (c *AuthClient) RequireAuthorization(forceOnline bool) error {
+	ok, err := c.RequireAuthorizationEx(forceOnline, true)
+	if err != nil {
+		return err
+	}
+	if !ok {
 		return &AuthorizationError{
+			Message:   "设备未授权",
+			DeviceID:  c.deviceID,
+			ServerURL: c.serverURL,
+		}
+	}
+	return nil
+}
+
+func (c *AuthClient) RequireAuthorizationEx(forceOnline, raiseException bool) (bool, error) {
+	result := c.CheckAuthorization(forceOnline)
+	ok := result.Success && result.Authorized
+	if ok {
+		return true, nil
+	}
+	if raiseException {
+		return false, &AuthorizationError{
 			Message:   result.Message,
 			Result:    result,
 			DeviceID:  c.deviceID,
 			ServerURL: c.serverURL,
 		}
 	}
+	return false, nil
+}
 
-	return nil
+func (c *AuthClient) SubmitCheckAuthorization(forceOnline bool) <-chan *AuthResult {
+	ch := make(chan *AuthResult, 1)
+	go func() {
+		ch <- c.CheckAuthorization(forceOnline)
+	}()
+	return ch
+}
+
+func (c *AuthClient) SubmitCheckAuthorizationProgressive(forceOnline bool) <-chan *AuthResult {
+	ch := make(chan *AuthResult, 1)
+	go func() {
+		ch <- c.CheckAuthorizationProgressive(forceOnline)
+	}()
+	return ch
+}
+
+func (c *AuthClient) SubmitRequireAuthorization(forceOnline, raiseException bool) <-chan struct {
+	OK    bool
+	Error error
+} {
+	ch := make(chan struct {
+		OK    bool
+		Error error
+	}, 1)
+	go func() {
+		ok, err := c.RequireAuthorizationEx(forceOnline, raiseException)
+		ch <- struct {
+			OK    bool
+			Error error
+		}{OK: ok, Error: err}
+	}()
+	return ch
 }
 
 func (c *AuthClient) CanSoftLaunch() bool {
 	return c.cache.IsCacheValid()
 }
 
-func (c *AuthClient) StartBackgroundRefresh(forceOnline bool, onDone func(*AuthResult)) bool {
+func (c *AuthClient) StartBackgroundRefresh(forceOnline bool, onDone func(*AuthResult)) BackgroundRefreshHandle {
 	soft := c.CanSoftLaunch()
+	done := make(chan *AuthResult, 1)
 	go func() {
 		r := c.CheckAuthorizationProgressive(forceOnline)
 		if onDone != nil {
 			onDone(r)
 		}
+		done <- r
 	}()
-	return soft
+	return BackgroundRefreshHandle{Soft: soft, Done: done}
 }
 
 func (c *AuthClient) ClearCache() error {
 	return c.cache.ClearCache()
+}
+
+func (c *AuthClient) GetPlanInfo() *PlanInfo {
+	requestData := map[string]string{}
+	if strings.TrimSpace(c.softwareName) != "" {
+		requestData["software_name"] = c.softwareName
+	}
+	payload, err := json.Marshal(requestData)
+	if err != nil {
+		return &PlanInfo{Success: false, Message: fmt.Sprintf("序列化请求失败: %v", err)}
+	}
+	encrypted, err := EncryptData(payload, c.clientSecret)
+	if err != nil {
+		return &PlanInfo{Success: false, Message: fmt.Sprintf("加密请求失败: %v", err)}
+	}
+
+	resp, err := resty.NewWithClient(heartbeatHTTPClient).R().
+		SetHeader("Content-Type", "application/json").
+		SetBody(map[string]string{"encrypted_data": encrypted}).
+		SetResult(map[string]interface{}{}).
+		Post(fmt.Sprintf("%s/api/auth/plan-info", c.serverURL))
+	if err != nil {
+		return &PlanInfo{Success: false, Message: fmt.Sprintf("连接失败: %v", err)}
+	}
+	if resp.StatusCode() != http.StatusOK {
+		errorMsg := fmt.Sprintf("服务器错误: %d", resp.StatusCode())
+		if resp.StatusCode() == http.StatusForbidden {
+			var errorResp map[string]interface{}
+			if err := json.Unmarshal(resp.Body(), &errorResp); err == nil {
+				if detail, ok := errorResp["detail"].(string); ok {
+					errorMsg = detail
+				}
+			}
+		}
+		return &PlanInfo{Success: false, Message: errorMsg}
+	}
+
+	var envelope map[string]interface{}
+	if err := json.Unmarshal(resp.Body(), &envelope); err != nil {
+		return &PlanInfo{Success: false, Message: "解析响应失败"}
+	}
+	encryptedData, ok := envelope["encrypted_data"].(string)
+	if !ok || encryptedData == "" {
+		return &PlanInfo{Success: false, Message: "响应格式错误"}
+	}
+	decrypted, err := DecryptData(encryptedData, c.clientSecret)
+	if err != nil {
+		return &PlanInfo{Success: false, Message: "解密响应失败"}
+	}
+
+	info := &PlanInfo{Success: true}
+	if err := json.Unmarshal(decrypted, info); err != nil {
+		return &PlanInfo{Success: false, Message: "解析解密数据失败"}
+	}
+	info.Success = true
+	return info
+}
+
+func (c *AuthClient) GetPaymentContext() *PaymentContext {
+	resp, err := resty.NewWithClient(heartbeatHTTPClient).R().
+		SetQueryParam("device_id", c.deviceID).
+		SetResult(map[string]interface{}{}).
+		Get(fmt.Sprintf("%s/api/payment/device-context", c.serverURL))
+	if err != nil {
+		return &PaymentContext{Success: false, Message: fmt.Sprintf("连接失败: %v", err)}
+	}
+	if resp.StatusCode() != http.StatusOK {
+		return &PaymentContext{Success: false, Message: fmt.Sprintf("服务器错误: %d", resp.StatusCode())}
+	}
+
+	ctx := &PaymentContext{Success: true}
+	if err := json.Unmarshal(resp.Body(), ctx); err != nil {
+		return &PaymentContext{Success: false, Message: "解析响应失败"}
+	}
+	ctx.Success = true
+	return ctx
+}
+
+func (c *AuthClient) GetCacheInfo() *CacheInfo {
+	cache, err := c.cache.GetCache()
+	if err != nil || cache == nil {
+		return nil
+	}
+	now := float64(time.Now().UnixNano()) / 1e9
+	return &CacheInfo{
+		Authorized:    true,
+		Message:       cache.Message,
+		CachedAt:      cache.LastSuccessAt,
+		LastSuccessAt: cache.LastSuccessAt,
+		CacheAgeDays:  (now - cache.LastSuccessAt) / secondsPerDay,
+		CacheValid:    c.cache.IsCacheValid(),
+		NeedsCheck:    c.cache.NeedsCheck(),
+		CacheFile:     c.cache.cacheFile,
+	}
 }
 
 func (c *AuthClient) GetAuthorizationInfo() *AuthorizationInfo {
@@ -694,6 +917,10 @@ func (c *AuthClient) GetAuthorizationInfo() *AuthorizationInfo {
 			CacheRemainingTime: "无缓存",
 			CacheValid:      false,
 		}
+	}
+
+	if c.lastPlan != "" {
+		info.Plan = c.lastPlan
 	}
 
 	if c.debug {

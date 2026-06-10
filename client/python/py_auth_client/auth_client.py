@@ -338,6 +338,7 @@ class AuthClient:
         if not self.client_secret:
             raise ValueError('client_secret未配置！请在初始化时传入（发行包中硬编码），或开发时设置环境变量CLIENT_SECRET。')
         self._cipher: Optional[Any] = None
+        self._last_plan: Optional[str] = None
         self.cache = AuthCache(self._storage_base, self.device_id, self.server_url, software_name=self.software_name, cache_validity_days=cache_validity_days, check_interval_days=check_interval_days)
         self._facts_prefetch_executor: Optional[ThreadPoolExecutor] = None
         self._facts_prefetch_future: Optional[Future] = None
@@ -446,8 +447,14 @@ class AuthClient:
             if response.status_code == 200:
                 decrypted = self._decrypt_data(response.json().get('encrypted_data', ''))
                 if decrypted:
+                    plan = decrypted.get('plan')
+                    if isinstance(plan, str) and plan.strip():
+                        self._last_plan = plan.strip()
                     self._log_debug(f"在线订阅成功，authorized={decrypted.get('authorized')}")
-                    return {'authorized': decrypted.get('authorized', False), 'message': decrypted.get('message', ''), 'success': True, 'from_cache': False}
+                    result = {'authorized': decrypted.get('authorized', False), 'message': decrypted.get('message', ''), 'success': True, 'from_cache': False}
+                    if self._last_plan:
+                        result['plan'] = self._last_plan
+                    return result
                 self._log_debug('在线订阅响应解密失败')
                 return {'authorized': False, 'message': '解密响应失败', 'success': False, 'from_cache': False}
             error_msg = response.json().get('detail', f'服务器错误: {response.status_code}') if response.status_code == 403 else f'服务器错误: {response.status_code}'
@@ -710,6 +717,50 @@ class AuthClient:
     def clear_cache(self) -> bool:
         return self.cache.clear_cache()
 
+    def get_plan_info(self) -> Dict[str, Any]:
+        """查询 client_secret 对应产品的套餐信息（加密 API）。"""
+        import requests
+
+        request_data: Dict[str, Any] = {}
+        if self.software_name:
+            request_data['software_name'] = self.software_name
+        try:
+            response = requests.post(
+                f'{self.server_url}/api/auth/plan-info',
+                json={'encrypted_data': self._encrypt_data(request_data)},
+                timeout=_DEFAULT_HEARTBEAT_TIMEOUT_SEC,
+            )
+            if response.status_code == 200:
+                decrypted = self._decrypt_data(response.json().get('encrypted_data', ''))
+                if decrypted:
+                    return {'success': True, **decrypted}
+                return {'success': False, 'message': '解密响应失败'}
+            error_msg = response.json().get('detail', f'服务器错误: {response.status_code}') if response.status_code == 403 else f'服务器错误: {response.status_code}'
+            return {'success': False, 'message': error_msg}
+        except requests.exceptions.RequestException as e:
+            return {'success': False, 'message': f'连接失败: {str(e)}'}
+        except Exception as e:
+            return {'success': False, 'message': f'未知错误: {str(e)}'}
+
+    def get_payment_context(self) -> Dict[str, Any]:
+        """查询当前设备绑定的付费上下文（公开 API，含套餐与价格）。"""
+        import requests
+
+        try:
+            response = requests.get(
+                f'{self.server_url}/api/payment/device-context',
+                params={'device_id': self.device_id},
+                timeout=_DEFAULT_HEARTBEAT_TIMEOUT_SEC,
+            )
+            if response.status_code == 200:
+                data = response.json()
+                return {'success': True, **data}
+            return {'success': False, 'message': f'服务器错误: {response.status_code}'}
+        except requests.exceptions.RequestException as e:
+            return {'success': False, 'message': f'连接失败: {str(e)}'}
+        except Exception as e:
+            return {'success': False, 'message': f'未知错误: {str(e)}'}
+
     def get_authorization_info(self) -> Dict[str, Any]:
         cache = self.cache.get_cache()
         if cache:
@@ -723,6 +774,8 @@ class AuthClient:
                 info['cached_at_readable'] = time.strftime('%Y-%m-%d %H:%M:%S', time.localtime(cached_at))
         else:
             info = {'authorized': False, 'success': False, 'from_cache': False, 'message': '无本地授权缓存', 'device_id': self.device_id, 'server_url': self.server_url, 'cache_remaining_time': '无缓存', 'cache_valid': False}
+        if self._last_plan:
+            info['plan'] = self._last_plan
         if self.debug:
             try:
                 blob = json.dumps(info, ensure_ascii=False, indent=2)

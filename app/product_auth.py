@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 from dataclasses import dataclass
+from typing import Any
 
 from sqlalchemy.orm import Session
 
@@ -12,7 +13,11 @@ from app.models import (
     Order,
     Product,
 )
-from app.product_utils import plan_from_product
+from app.product_utils import (
+    pay_type_from_product,
+    plan_from_product,
+    software_name_for_product,
+)
 
 ORDER_STATUS_PAID = "paid"
 
@@ -191,3 +196,44 @@ def build_device_plan_display(
             "plan_tag": "info",
         }
     return empty
+
+
+def build_product_plan_info(db: Session, product: Product) -> dict[str, Any]:
+    """根据产品配置构建客户端可读的套餐信息。"""
+    from app.payment_config import load_epay_config
+    from app.services.payment_service import is_payable_product, product_price, validate_pay_type
+
+    plan = plan_from_product(product)
+    info: dict[str, Any] = {
+        "display_name": product.display_name,
+        "software_name": software_name_for_product(product) or None,
+        "auth_mode": product.auth_mode,
+        "plan": plan,
+        "plan_label": format_plan_name(plan),
+        "can_pay": False,
+    }
+
+    if product.auth_mode != AUTH_MODE_PAID:
+        return info
+
+    pay_type = pay_type_from_product(product)
+    info["pay_type"] = pay_type
+    try:
+        info["price"] = product_price(product)
+    except ValueError:
+        return info
+
+    if not is_payable_product(product):
+        return info
+
+    config = load_epay_config(db)
+    if not config.get("enabled"):
+        return info
+
+    try:
+        validate_pay_type(pay_type, config)
+    except ValueError:
+        return info
+
+    info["can_pay"] = True
+    return info

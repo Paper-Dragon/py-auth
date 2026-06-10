@@ -38,6 +38,9 @@
               </el-form-item>
               <el-form-item label="接口地址" prop="api_url">
                 <el-input v-model="epayForm.api_url" placeholder="https://pay.example.com" />
+                <p class="form-item-help">
+                  填写易支付网关根地址，不要包含 mapi.php、api.php 等路径
+                </p>
               </el-form-item>
               <el-form-item label="商户 ID" prop="pid">
                 <el-input v-model="epayForm.pid" placeholder="商户 PID" />
@@ -102,24 +105,19 @@
                 <el-input v-model="epayForm.sitename" placeholder="可选" />
               </el-form-item>
               <el-form-item label="异步通知">
-                <el-input v-model="epayForm.notify_url" placeholder="留空则自动生成" />
-                <p class="form-item-help resolved-url">
-                  实际回调：{{ epayForm.resolved_notify_url || '保存后根据公网地址生成' }}
-                </p>
+                <el-input v-model="epayForm.notify_url" placeholder="留空则按服务地址自动生成" />
               </el-form-item>
               <el-form-item label="同步跳转">
-                <el-input v-model="epayForm.return_url" placeholder="留空则自动生成 /pay/result" />
-                <p class="form-item-help resolved-url">
-                  实际跳转：{{ epayForm.resolved_return_url || '保存后根据公网地址生成' }}
-                </p>
+                <el-input v-model="epayForm.return_url" placeholder="留空则按服务地址自动生成 /pay/result" />
               </el-form-item>
+              <p class="form-item-help">
+                以上两项留空时，下单会使用当前服务地址拼接回调路径；生产环境建议在 .env 配置
+                <code>PUBLIC_BASE_URL</code>，或在此填写完整 HTTPS 地址。
+              </p>
               <el-form-item>
                 <el-button type="primary" @click="saveEpayConfig" :loading="saving">保存配置</el-button>
-                <el-button @click="copyText(epayForm.resolved_notify_url)">复制回调地址</el-button>
+                <el-button @click="copyNotifyUrl">复制回调地址</el-button>
               </el-form-item>
-              <p class="form-item-help resolved-url">
-                支付页：{{ epayForm.resolved_pay_url || '请配置 PUBLIC_BASE_URL 或同步跳转地址' }}
-              </p>
             </section>
 
             <section class="section-block">
@@ -193,8 +191,6 @@ const epayForm = ref({
   sitename: '',
   enabled_channels: ['alipay', 'wxpay', 'qqpay'],
   resolved_notify_url: '',
-  resolved_return_url: '',
-  resolved_pay_url: '',
 })
 
 const testingConnection = ref(false)
@@ -265,8 +261,6 @@ const fillEpayForm = (data) => {
       ? [...data.enabled_channels]
       : ['alipay', 'wxpay', 'qqpay'],
     resolved_notify_url: data.resolved_notify_url || '',
-    resolved_return_url: data.resolved_return_url || '',
-    resolved_pay_url: data.resolved_pay_url || '',
   }
   syncTestPayType()
 }
@@ -344,12 +338,21 @@ const copyText = async (text) => {
 }
 
 const openPayPage = () => {
-  const url = epayForm.value.resolved_pay_url
-  if (!url) {
-    ElMessage.warning('请先配置 PUBLIC_BASE_URL 或填写同步跳转地址')
+  window.open('/pay', '_blank')
+}
+
+const copyNotifyUrl = async () => {
+  const explicit = (epayForm.value.notify_url || '').trim()
+  if (explicit) {
+    await copyText(explicit)
     return
   }
-  window.open(url, '_blank')
+  const resolved = (epayForm.value.resolved_notify_url || '').trim()
+  if (resolved) {
+    await copyText(resolved)
+    return
+  }
+  ElMessage.warning('请先保存配置，或手动填写异步通知地址')
 }
 
 const goOrders = () => {
@@ -521,11 +524,6 @@ onMounted(async () => {
   font-size: 12px;
   margin: 4px 0 0;
   line-height: 1.5;
-}
-
-.resolved-url {
-  color: #409eff;
-  word-break: break-all;
 }
 
 .test-actions {

@@ -1,6 +1,7 @@
 package main
 
 import (
+	"bufio"
 	"encoding/json"
 	"fmt"
 	"log"
@@ -29,6 +30,43 @@ func clientSecret() string {
 	return ""
 }
 
+func buildPayURL(client *authclient.AuthClient, autoPay bool) string {
+	url := fmt.Sprintf("%s/pay?device_id=%s", client.ServerURL(), client.DeviceID())
+	if autoPay {
+		url += "&auto_pay=1"
+	}
+	return url
+}
+
+func guidePayment(client *authclient.AuthClient) {
+	if planInfo := client.GetPlanInfo(); planInfo != nil && planInfo.Success {
+		label := planInfo.PlanLabel
+		if label == "" {
+			label = planInfo.Plan
+		}
+		if label == "" {
+			label = "未知套餐"
+		}
+		if planInfo.Price != "" {
+			fmt.Printf("当前套餐：%s，价格：¥%s\n", label, planInfo.Price)
+		} else {
+			fmt.Printf("当前套餐：%s\n", label)
+		}
+	}
+
+	fmt.Println("设备未授权，请在浏览器打开以下链接完成付款：")
+	fmt.Printf("  %s\n", buildPayURL(client, true))
+
+	fmt.Print("付款完成后按回车继续...")
+	_, _ = bufio.NewReader(os.Stdin).ReadBytes('\n')
+
+	if ok, _ := client.RequireAuthorizationEx(true, false); ok {
+		fmt.Println("付款成功，已授权")
+	} else {
+		fmt.Println("仍未授权，请确认订单状态后重试")
+	}
+}
+
 func main() {
 	cfg := authclient.AuthClientConfig{
 		ServerURL:         "http://localhost:8000",
@@ -40,30 +78,15 @@ func main() {
 		Debug:             true,
 	}
 	client, err := authclient.NewAuthClient(cfg)
-
 	if err != nil {
 		log.Fatalf("初始化客户端失败: %v", err)
 	}
 
-	err = client.RequireAuthorization(false)
-	if err != nil {
-		if authErr, ok := err.(*authclient.AuthorizationError); ok {
-			fmt.Printf("❌ 授权失败: %s\n", authErr.Message)
-
-			if authErr.IsNetworkError() {
-				fmt.Println("错误类型: 网络连接错误")
-			} else if authErr.IsUnauthorized() {
-				fmt.Println("错误类型: 设备未授权")
-			} else if authErr.IsValidationError() {
-				fmt.Println("错误类型: 验证错误")
-			}
-		} else {
-			fmt.Printf("❌ 授权失败: %v\n", err)
-		}
-		os.Exit(1)
+	if ok, _ := client.RequireAuthorizationEx(true, false); ok {
+		fmt.Println("已授权，正常启动")
+	} else {
+		guidePayment(client)
 	}
-
-	fmt.Println("✅ 设备已授权")
 
 	info := client.GetAuthorizationInfo()
 	if !cfg.Debug {

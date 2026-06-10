@@ -83,6 +83,7 @@ export interface AuthResult {
   success: boolean;
   from_cache: boolean;
   is_auth_error?: boolean;
+  plan?: string;
 }
 
 export interface AuthorizationInfo {
@@ -97,6 +98,34 @@ export interface AuthorizationInfo {
   cache_valid?: boolean;
   cached_at?: number;
   cached_at_readable?: string;
+  plan?: string;
+}
+
+export interface PlanInfo {
+  success: boolean;
+  message?: string;
+  display_name?: string;
+  software_name?: string;
+  auth_mode?: string;
+  plan?: string;
+  plan_label?: string;
+  price?: string;
+  pay_type?: string;
+  can_pay?: boolean;
+}
+
+export interface PaymentContext {
+  success: boolean;
+  message?: string;
+  device_id?: string;
+  software_name?: string;
+  display_name?: string;
+  auth_mode?: string;
+  plan?: string;
+  plan_label?: string;
+  price?: string;
+  pay_type?: string;
+  can_pay?: boolean;
 }
 
 export interface CacheRecordWire {
@@ -109,6 +138,17 @@ export interface CacheRecord {
   authorized: boolean;
   message: string;
   cachedAt: number;
+}
+
+export interface CacheInfo {
+  authorized?: boolean;
+  message?: string;
+  cached_at: number;
+  last_success_at: number;
+  cache_age_days: number;
+  cache_valid: boolean;
+  needs_check: boolean;
+  cache_file: string;
 }
 
 export interface AuthClientConfig {

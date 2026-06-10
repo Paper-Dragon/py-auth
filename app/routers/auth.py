@@ -8,7 +8,11 @@ from sqlalchemy.orm import Session
 from app.crypto import encrypt_response_data, try_decrypt_heartbeat
 from app.database import get_db
 from app.models import Device, Product
-from app.product_auth import evaluate_device_authorization, resolve_initial_authorization
+from app.product_auth import (
+    build_product_plan_info,
+    evaluate_device_authorization,
+    resolve_initial_authorization,
+)
 from app.product_resolve import resolve_product_by_client_secret
 from app.product_utils import (
     CLIENT_SOFTWARE_NAME_MISMATCH_DETAIL,
@@ -131,6 +135,39 @@ async def heartbeat(
         response_data["plan"] = plan
 
     encrypted = encrypt_response_data(response_data, client_secret)
+    if not encrypted:
+        raise HTTPException(status_code=status.HTTP_500_INTERNAL_SERVER_ERROR, detail="加密响应失败")
+
+    return EncryptedResponse(encrypted_data=encrypted)
+
+
+@router.post("/plan-info", response_model=EncryptedResponse)
+async def get_plan_info(
+    request: EncryptedRequest,
+    db: Session = Depends(get_db),
+    _: None = Depends(require_rate_limit("heartbeat")),
+):
+    """查询 client_secret 对应产品的套餐信息（加密请求/响应）。"""
+    data, client_secret = try_decrypt_heartbeat(db, request.encrypted_data)
+    if not data:
+        raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="解密失败，无法验证客户端")
+
+    product = resolve_product_by_client_secret(db, client_secret)
+    if not product:
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="无效的 client_secret，无法解析产品 UUID",
+        )
+
+    software_name = data.get("software_name")
+    if software_name is not None and not client_software_name_matches_product(product, software_name):
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail=CLIENT_SOFTWARE_NAME_MISMATCH_DETAIL,
+        )
+
+    plan_info = build_product_plan_info(db, product)
+    encrypted = encrypt_response_data(plan_info, client_secret)
     if not encrypted:
         raise HTTPException(status_code=status.HTTP_500_INTERNAL_SERVER_ERROR, detail="加密响应失败")
 

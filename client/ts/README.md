@@ -77,6 +77,43 @@ const info = await client.getAuthorizationInfo();
 console.log(info.authorized, info.message, info.device_id, info.cache_remaining_time);
 ```
 
+### 要求授权（不抛异常）
+
+```ts
+const ok = await client.requireAuthorization({ raiseException: false });
+```
+
+### 后台刷新授权
+
+```ts
+const { soft, promise } = client.startBackgroundRefresh({
+  onDone: (r) => console.log(r.message),
+});
+const result = await promise;
+```
+
+### 读取缓存详情
+
+```ts
+const cache = client.getCacheInfo();
+```
+
+### 查询套餐信息
+
+```ts
+const plan = await client.getPlanInfo();
+if (plan.success) {
+  console.log(plan.plan_label, plan.price);
+}
+
+const ctx = await client.getPaymentContext();
+if (ctx.success) {
+  console.log(ctx.plan, ctx.can_pay);
+}
+```
+
+心跳成功时 `checkAuthorization()` 返回的 `plan` 字段表示当前生效套餐。
+
 ### 清除本地缓存
 
 ```ts

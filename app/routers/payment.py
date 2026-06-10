@@ -190,8 +190,15 @@ async def test_epay_connection(
     except ValueError as exc:
         return EpayTestConnectionResponse(success=False, message=str(exc))
 
+    merchant_query_skipped = False
     try:
-        query_merchant(epay["api_url"], epay["pid"], epay["key"])
+        merchant_info = query_merchant(
+            epay["api_url"],
+            epay["pid"],
+            epay["key"],
+            optional=True,
+        )
+        merchant_query_skipped = merchant_info is None
     except ValueError as exc:
         return EpayTestConnectionResponse(success=False, message=f"商户接口不可用：{exc}")
     except Exception as exc:
@@ -213,13 +220,17 @@ async def test_epay_connection(
             sitename=epay.get("sitename", ""),
             order_mode=epay.get("order_mode", "mapi"),
         )
+        success_message = f"{label}渠道连接正常"
+        if merchant_query_skipped:
+            success_message += "（网关未提供商户查询接口，已直接验证下单）"
         return EpayTestConnectionResponse(
             success=True,
-            message=f"{label}渠道连接正常",
+            message=success_message,
             detail={
                 "pay_type": pay_type,
                 "pay_mode": pay_result.pay_mode,
                 "out_trade_no": out_trade_no,
+                "merchant_query_skipped": merchant_query_skipped,
             },
         )
     except ValueError as exc:
@@ -250,17 +261,21 @@ async def test_epay_payment(
     except ValueError as exc:
         raise HTTPException(status_code=400, detail=str(exc)) from exc
 
-    order, pay_result = svc.create_and_submit_order(
-        db=db,
-        epay=epay,
-        device_id=f"epay_test_{current_user.username}",
-        product_key=EPAY_TEST_PRODUCT_KEY,
-        product_name="易支付连接测试",
-        plan=None,
-        money=money,
-        pay_type=pay_type,
-        test=True,
-    )
+    try:
+        order, pay_result = svc.create_and_submit_order(
+            db=db,
+            epay=epay,
+            device_id=f"epay_test_{current_user.username}",
+            product_key=EPAY_TEST_PRODUCT_KEY,
+            product_name="易支付连接测试",
+            plan=None,
+            money=money,
+            pay_type=pay_type,
+            test=True,
+        )
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+
     add_operation_log(
         db,
         username=current_user.username,
@@ -372,17 +387,20 @@ async def create_payment_order(
     except ValueError as exc:
         raise HTTPException(status_code=400, detail=str(exc)) from exc
 
-    order, pay_result = svc.create_and_submit_order(
-        db=db,
-        epay=epay,
-        device_id=device_id,
-        product_key=product.key,
-        product_name=product.display_name,
-        plan=plan_from_product(product) or "pro",
-        money=svc.product_price(product),
-        pay_type=pay_type,
-        test=False,
-    )
+    try:
+        order, pay_result = svc.create_and_submit_order(
+            db=db,
+            epay=epay,
+            device_id=device_id,
+            product_key=product.key,
+            product_name=product.display_name,
+            plan=plan_from_product(product) or "pro",
+            money=svc.product_price(product),
+            pay_type=pay_type,
+            test=False,
+        )
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
     return _to_order_response(order, pay_result)
 
 

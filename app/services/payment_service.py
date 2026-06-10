@@ -25,6 +25,7 @@ from app.payment_config import (
     ensure_pay_type_enabled,
     load_epay_config,
 )
+from app.product_auth import build_product_plan_info
 from app.product_resolve import get_product_by_key
 from app.product_utils import (
     pay_type_from_product,
@@ -103,6 +104,18 @@ def validate_pay_type(pay_type: str, config: dict | None = None) -> str:
     return ensure_pay_type_enabled(config, pay_type)
 
 
+def _plan_fields_from_product(db: Session, product: Product) -> dict:
+    plan_info = build_product_plan_info(db, product)
+    return {
+        "display_name": plan_info.get("display_name"),
+        "auth_mode": plan_info.get("auth_mode"),
+        "plan": plan_info.get("plan"),
+        "plan_label": plan_info.get("plan_label"),
+        "price": plan_info.get("price"),
+        "pay_type": plan_info.get("pay_type"),
+    }
+
+
 def build_payment_device_context(db: Session, device_id: str) -> PaymentDeviceContextResponse:
     """根据设备已绑定的产品 UUID（client_secret 心跳写入）推断可付费产品。"""
     device_id = device_id.strip()
@@ -129,55 +142,38 @@ def build_payment_device_context(db: Session, device_id: str) -> PaymentDeviceCo
             software_name=software_name or None,
             message="设备对应的产品不存在",
         )
+
+    plan_fields = _plan_fields_from_product(db, product)
+    base = PaymentDeviceContextResponse(
+        device_id=device_id,
+        software_name=software_name,
+        **plan_fields,
+    )
     if not is_payable_product(product):
-        return PaymentDeviceContextResponse(
-            device_id=device_id,
-            software_name=software_name,
-            display_name=product.display_name,
-            message="该产品未开启付费授权",
-        )
+        base.message = "该产品未开启付费授权"
+        return base
 
     try:
         price = product_price(product)
     except ValueError:
-        return PaymentDeviceContextResponse(
-            device_id=device_id,
-            software_name=software_name,
-            display_name=product.display_name,
-            message="产品价格未配置",
-        )
+        base.message = "产品价格未配置"
+        return base
 
     pay_type = pay_type_from_product(product)
+    base.price = price
+    base.pay_type = pay_type
     config = load_epay_config(db)
     if not config.get("enabled"):
-        return PaymentDeviceContextResponse(
-            device_id=device_id,
-            software_name=software_name,
-            display_name=product.display_name,
-            price=price,
-            pay_type=pay_type,
-            message="支付功能未开启",
-        )
+        base.message = "支付功能未开启"
+        return base
     try:
         validate_pay_type(pay_type, config)
     except ValueError as exc:
-        return PaymentDeviceContextResponse(
-            device_id=device_id,
-            software_name=software_name,
-            display_name=product.display_name,
-            price=price,
-            pay_type=pay_type,
-            message=str(exc),
-        )
+        base.message = str(exc)
+        return base
 
-    return PaymentDeviceContextResponse(
-        device_id=device_id,
-        software_name=software_name,
-        display_name=product.display_name,
-        price=price,
-        pay_type=pay_type,
-        can_pay=True,
-    )
+    base.can_pay = True
+    return base
 
 
 def resolve_payable_product(db: Session, device_id: str) -> Product:
@@ -297,19 +293,24 @@ def create_and_submit_order(
     db.commit()
     db.refresh(order)
 
-    pay_result = create_pay_result(
-        epay["api_url"],
-        pid=epay["pid"],
-        merchant_key=epay["key"],
-        pay_type=pay_type,
-        out_trade_no=out_trade_no,
-        notify_url=epay["notify_url"],
-        return_url=epay["return_url"],
-        name=product_name,
-        money=money,
-        sitename=epay.get("sitename", ""),
-        order_mode=epay.get("order_mode", "mapi"),
-    )
+    try:
+        pay_result = create_pay_result(
+            epay["api_url"],
+            pid=epay["pid"],
+            merchant_key=epay["key"],
+            pay_type=pay_type,
+            out_trade_no=out_trade_no,
+            notify_url=epay["notify_url"],
+            return_url=epay["return_url"],
+            name=product_name,
+            money=money,
+            sitename=epay.get("sitename", ""),
+            order_mode=epay.get("order_mode", "mapi"),
+        )
+    except ValueError:
+        db.delete(order)
+        db.commit()
+        raise
     return order, pay_result
 
 

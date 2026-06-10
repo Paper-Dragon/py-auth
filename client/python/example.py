@@ -28,6 +28,15 @@ def _build_pay_url(client: AuthClient, *, auto_pay: bool = True) -> str:
 
 def _guide_payment(client: AuthClient) -> None:
     """未授权时引导用户去支付页，付款后强制在线复查授权。"""
+    plan_info = client.get_plan_info()
+    if plan_info.get("success"):
+        label = plan_info.get("plan_label") or plan_info.get("plan") or "未知套餐"
+        price = plan_info.get("price")
+        if price:
+            print(f"当前套餐：{label}，价格：¥{price}")
+        else:
+            print(f"当前套餐：{label}")
+
     pay_url = _build_pay_url(client)
     print("设备未授权，请在浏览器打开以下链接完成付款：")
     print(f"  {pay_url}")

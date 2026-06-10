@@ -1,7 +1,8 @@
 import fs from "node:fs";
 import path from "node:path";
+import * as readline from "node:readline/promises";
 
-import { AuthClient, AuthorizationError } from "./src";
+import { AuthClient } from "./src";
 
 function readRepoEnv(): string {
   let dir = __dirname;
@@ -19,20 +20,55 @@ function readRepoEnv(): string {
   throw new Error("未找到仓库根目录下的 .env（已从 __dirname 向上查找）");
 }
 
-async function main() {
-  const debug = true;
-  let clientSecret = "";
-  const text = readRepoEnv();
+function clientSecretFromEnv(text: string): string {
   for (const line of text.split("\n")) {
     const s = line.trim();
     if (!s || s.startsWith("#")) continue;
     const i = s.indexOf("=");
     if (i < 0) continue;
     if (s.slice(0, i).trim() !== "CLIENT_SECRET") continue;
-    const raw = s.slice(i + 1).trim();
-    clientSecret = raw.replace(/^["']|["']$/g, "");
-    break;
+    return s.slice(i + 1).trim().replace(/^["']|["']$/g, "");
   }
+  return "";
+}
+
+function buildPayUrl(client: AuthClient, autoPay = true): string {
+  let url = `${client.serverUrl}/pay?device_id=${encodeURIComponent(client.deviceId)}`;
+  if (autoPay) {
+    url += "&auto_pay=1";
+  }
+  return url;
+}
+
+async function guidePayment(client: AuthClient): Promise<void> {
+  const planInfo = await client.getPlanInfo();
+  if (planInfo.success) {
+    const label = planInfo.plan_label || planInfo.plan || "未知套餐";
+    if (planInfo.price) {
+      console.log(`当前套餐：${label}，价格：¥${planInfo.price}`);
+    } else {
+      console.log(`当前套餐：${label}`);
+    }
+  }
+
+  const payUrl = buildPayUrl(client);
+  console.log("设备未授权，请在浏览器打开以下链接完成付款：");
+  console.log(`  ${payUrl}`);
+
+  const rl = readline.createInterface({ input: process.stdin, output: process.stdout });
+  await rl.question("付款完成后按回车继续...");
+  rl.close();
+
+  if (await client.requireAuthorization({ raiseException: false, forceOnline: true })) {
+    console.log("付款成功，已授权");
+  } else {
+    console.log("仍未授权，请确认订单状态后重试");
+  }
+}
+
+async function main() {
+  const debug = true;
+  const clientSecret = clientSecretFromEnv(readRepoEnv());
 
   const client = new AuthClient({
     serverUrl: "http://localhost:8000",
@@ -42,28 +78,19 @@ async function main() {
     debug,
   });
 
-  try {
-    await client.requireAuthorization();
-    
-    console.log("✅ 设备已授权");
-  } catch (e) {
-    if (e instanceof AuthorizationError) {
-      
-      console.error(`❌ 授权失败: ${e.message}`);
-      process.exit(1);
-    }
-    throw e;
+  if (await client.requireAuthorization({ raiseException: false, forceOnline: true })) {
+    console.log("已授权，正常启动");
+  } else {
+    await guidePayment(client);
   }
 
   const info = await client.getAuthorizationInfo();
   if (!debug) {
-    
-    console.log(info);
+    console.log(JSON.stringify(info, null, 2));
   }
 }
 
 main().catch((e) => {
-  
   console.error(e);
   process.exit(1);
 });

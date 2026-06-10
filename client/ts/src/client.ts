@@ -1,11 +1,19 @@
 import fs from "node:fs";
 import os from "node:os";
-import type { AuthClientConfig, AuthResult, AuthorizationInfo, DeviceInfo } from "./types";
+import type {
+  AuthClientConfig,
+  AuthResult,
+  AuthorizationInfo,
+  CacheInfo,
+  DeviceInfo,
+  PaymentContext,
+  PlanInfo,
+} from "./types";
 import { AuthorizationError } from "./errors";
 import { encryptData, decryptData } from "./crypto";
 import { AuthCache } from "./cache";
 import { buildDeviceId, collectDeviceInfo, fetchPublicIp, loadPersistedDeviceId } from "./device";
-import { postJson } from "./http";
+import { getJson, postJson } from "./http";
 import { getClientStorageRoot } from "./storage";
 import { bundlePath } from "./stateBundle";
 import { baseSdk } from "./sdkMeta";
@@ -29,19 +37,21 @@ type EncryptedEnvelope = {
 type HeartbeatResponseDecrypted = {
   authorized?: boolean;
   message?: string;
+  plan?: string;
 };
 
 export class AuthClient {
-  private readonly serverUrl: string;
-  private readonly softwareName: string;
-  private readonly softwareVersion: string;
-  private readonly deviceId: string;
+  readonly serverUrl: string;
+  readonly softwareName: string;
+  readonly softwareVersion: string;
+  readonly deviceId: string;
   private deviceInfo: DeviceInfo;
   private deviceInfoDeferred: boolean;
   private readonly clientSecret: string;
-  private readonly debug: boolean;
+  readonly debug: boolean;
   private readonly cache: AuthCache;
   private readonly stateBundleExistedBeforeInit: boolean;
+  private lastPlan: string | undefined;
 
   constructor(config: AuthClientConfig) {
     if (!config.serverUrl) throw new Error("serverUrl不能为空");
@@ -184,12 +194,17 @@ export class AuthClient {
         return { authorized: false, message: "解密响应失败", success: false, from_cache: false };
       }
       const decrypted = JSON.parse(decryptedText) as HeartbeatResponseDecrypted;
+      const plan = typeof decrypted.plan === "string" ? decrypted.plan.trim() : "";
+      if (plan) {
+        this.lastPlan = plan;
+      }
       this.logDebug(`在线订阅成功，authorized=${!!decrypted.authorized}`);
       return {
         authorized: !!decrypted.authorized,
         message: decrypted.message ?? "",
         success: true,
         from_cache: false,
+        ...(this.lastPlan ? { plan: this.lastPlan } : {}),
       };
     }
     const detail = (json as any)?.detail;
@@ -380,19 +395,40 @@ export class AuthClient {
     return onlineResult;
   }
 
-  async requireAuthorization(forceOnline = false): Promise<boolean> {
+  async requireAuthorization(
+    options?: boolean | { forceOnline?: boolean; raiseException?: boolean },
+  ): Promise<boolean> {
+    const forceOnline = typeof options === "boolean" ? options : (options?.forceOnline ?? false);
+    const raiseException = typeof options === "boolean" ? true : (options?.raiseException ?? true);
     const result = await this.checkAuthorization(forceOnline);
 
     if (!result.success || !result.authorized) {
-      throw new AuthorizationError({
-        message: result.message,
-        result,
-        deviceId: this.deviceId,
-        serverUrl: this.serverUrl,
-      });
+      if (raiseException) {
+        throw new AuthorizationError({
+          message: result.message,
+          result,
+          deviceId: this.deviceId,
+          serverUrl: this.serverUrl,
+        });
+      }
+      return false;
     }
 
     return true;
+  }
+
+  submitCheckAuthorization(forceOnline = false): Promise<AuthResult> {
+    return this.checkAuthorization(forceOnline);
+  }
+
+  submitCheckAuthorizationProgressive(forceOnline = false): Promise<AuthResult> {
+    return this.checkAuthorizationProgressive(forceOnline);
+  }
+
+  submitRequireAuthorization(
+    options?: boolean | { forceOnline?: boolean; raiseException?: boolean },
+  ): Promise<boolean> {
+    return this.requireAuthorization(options);
   }
 
   clearCache(): boolean {
@@ -407,23 +443,68 @@ export class AuthClient {
   startBackgroundRefresh(options?: {
     forceOnline?: boolean;
     onDone?: (result: AuthResult) => void;
-  }): boolean {
+  }): { soft: boolean; promise: Promise<AuthResult> } {
     const soft = this.canSoftLaunch();
     const fo = options?.forceOnline ?? false;
-    void this.checkAuthorizationProgressive(fo).then(
+    const promise = this.checkAuthorizationProgressive(fo).then(
       (r) => {
         options?.onDone?.(r);
+        return r;
       },
       (err: unknown) => {
-        options?.onDone?.({
+        const failed: AuthResult = {
           authorized: false,
           success: false,
           from_cache: false,
           message: err instanceof Error ? err.message : String(err),
-        });
+        };
+        options?.onDone?.(failed);
+        return failed;
       },
     );
-    return soft;
+    return { soft, promise };
+  }
+
+  async getPlanInfo(): Promise<PlanInfo> {
+    const requestData: Record<string, string> = {};
+    if (this.softwareName) {
+      requestData.software_name = this.softwareName;
+    }
+    try {
+      const { status, json } = await postJson<EncryptedEnvelope>(
+        `${this.serverUrl}/api/auth/plan-info`,
+        { encrypted_data: encryptData(JSON.stringify(requestData), this.clientSecret) },
+        HEARTBEAT_TIMEOUT_MS,
+      );
+      if (status === 200) {
+        const token = json?.encrypted_data ?? "";
+        const decryptedText = token ? decryptData(token, this.clientSecret) : null;
+        if (!decryptedText) {
+          return { success: false, message: "解密响应失败" };
+        }
+        return { success: true, ...(JSON.parse(decryptedText) as Omit<PlanInfo, "success">) };
+      }
+      const detail = (json as { detail?: string } | null)?.detail;
+      const msg = status === 403 && typeof detail === "string" ? detail : `服务器错误: ${status}`;
+      return { success: false, message: msg };
+    } catch (e: unknown) {
+      const msg = e instanceof Error && e.name === "AbortError" ? "连接失败: timeout" : `连接失败: ${String(e)}`;
+      return { success: false, message: msg };
+    }
+  }
+
+  async getPaymentContext(): Promise<PaymentContext> {
+    const url = `${this.serverUrl}/api/payment/device-context?device_id=${encodeURIComponent(this.deviceId)}`;
+    try {
+      const { status, json } = await getJson<Omit<PaymentContext, "success">>(url, HEARTBEAT_TIMEOUT_MS);
+      if (status === 200 && json) {
+        return { success: true, ...json };
+      }
+      return { success: false, message: `服务器错误: ${status}` };
+    } catch (e: unknown) {
+      const msg = e instanceof Error && e.name === "AbortError" ? "连接失败: timeout" : `连接失败: ${String(e)}`;
+      return { success: false, message: msg };
+    }
   }
 
   async getAuthorizationInfo(): Promise<AuthorizationInfo> {
@@ -456,6 +537,10 @@ export class AuthClient {
           cache_valid: false,
         };
 
+    if (this.lastPlan) {
+      info.plan = this.lastPlan;
+    }
+
     if (this.debug) {
       try {
         this.logDebug(`授权信息摘要:\n${JSON.stringify(info, null, 2)}`);
@@ -463,5 +548,23 @@ export class AuthClient {
     }
 
     return info;
+  }
+
+  getCacheInfo(): CacheInfo | null {
+    const cache = this.cache.getCache();
+    if (!cache) {
+      return null;
+    }
+    const now = Date.now() / 1000;
+    return {
+      authorized: cache.authorized,
+      message: cache.message,
+      cached_at: cache.cachedAt,
+      last_success_at: cache.cachedAt,
+      cache_age_days: (now - cache.cachedAt) / SECONDS_PER_DAY,
+      cache_valid: this.cache.isCacheTTLValid(cache),
+      needs_check: this.cache.needsCheck(),
+      cache_file: this.cache.cacheFile,
+    };
   }
 }

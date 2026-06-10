@@ -101,12 +101,33 @@ def build_order_params(
     return payload
 
 
+def normalize_epay_api_url(api_url: str) -> str:
+    """规范为易支付网关根地址，剔除用户误填的脚本路径。"""
+    url = (api_url or "").strip().rstrip("/")
+    if not url:
+        return ""
+    lowered = url.lower()
+    for suffix in ("/mapi.php", "/submit.php", "/api.php"):
+        if lowered.endswith(suffix):
+            url = url[: -len(suffix)].rstrip("/")
+            lowered = url.lower()
+    return url
+
+
 def build_submit_action(api_url: str) -> str:
-    return f"{api_url.rstrip('/')}/submit.php"
+    return f"{normalize_epay_api_url(api_url)}/submit.php"
 
 
 def build_mapi_endpoint(api_url: str) -> str:
-    return f"{api_url.rstrip('/')}/mapi.php"
+    return f"{normalize_epay_api_url(api_url)}/mapi.php"
+
+
+def _epay_http_error_message(api_url: str, exc: Exception) -> str:
+    return (
+        f"无法连接易支付接口: {exc}。"
+        "请确认「接口地址」为网关根地址（如 https://pay.example.com），"
+        "不要包含 mapi.php、api.php 等路径"
+    )
 
 
 def _http_post_form(url: str, fields: dict[str, str], timeout: int = 20) -> str:
@@ -138,14 +159,31 @@ def _parse_json_body(body: str) -> dict[str, Any]:
     return parsed
 
 
-def query_merchant(api_url: str, pid: str, merchant_key: str) -> dict[str, Any]:
+def query_merchant(
+    api_url: str,
+    pid: str,
+    merchant_key: str,
+    *,
+    optional: bool = False,
+) -> dict[str, Any] | None:
+    """查询商户信息；optional 为 True 时，网关无 api.php 查询接口则返回 None 而不报错。"""
+    base = normalize_epay_api_url(api_url)
+    if not base:
+        raise ValueError("易支付接口地址未配置")
+
     query = urllib.parse.urlencode({"act": "query", "pid": str(pid), "key": merchant_key})
-    url = f"{api_url.rstrip('/')}/api.php?{query}"
+    url = f"{base}/api.php?{query}"
     try:
         body = _http_get(url)
+    except urllib.error.HTTPError as exc:
+        if optional and exc.code in (404, 405):
+            logger.info("易支付商户查询接口不可用 (%s)，跳过: %s", exc.code, url)
+            return None
+        logger.error("易支付商户查询失败: %s", exc)
+        raise ValueError(_epay_http_error_message(base, exc)) from exc
     except urllib.error.URLError as exc:
         logger.error("易支付商户查询失败: %s", exc)
-        raise ValueError(f"无法连接易支付接口: {exc}") from exc
+        raise ValueError(_epay_http_error_message(base, exc)) from exc
 
     body = body.strip()
     if not body:
@@ -163,15 +201,18 @@ def query_merchant(api_url: str, pid: str, merchant_key: str) -> dict[str, Any]:
 
 
 def query_order(api_url: str, pid: str, merchant_key: str, out_trade_no: str) -> dict[str, Any]:
+    base = normalize_epay_api_url(api_url)
     query = urllib.parse.urlencode({
         "act": "order",
         "pid": str(pid),
         "key": merchant_key,
         "out_trade_no": out_trade_no,
     })
-    url = f"{api_url.rstrip('/')}/api.php?{query}"
+    url = f"{base}/api.php?{query}"
     try:
         body = _http_get(url)
+    except urllib.error.HTTPError as exc:
+        raise ValueError(_epay_http_error_message(base, exc)) from exc
     except urllib.error.URLError as exc:
         raise ValueError(f"订单查询失败: {exc}") from exc
     if body.strip().startswith("{"):
@@ -197,9 +238,13 @@ def request_mapi_pay(
         money=params["money"],
         sitename=sitename,
     )
-    endpoint = build_mapi_endpoint(api_url)
+    base = normalize_epay_api_url(api_url)
+    endpoint = build_mapi_endpoint(base)
     try:
         body = _http_post_form(endpoint, signed)
+    except urllib.error.HTTPError as exc:
+        logger.error("易支付 mapi 请求失败: %s", exc)
+        raise ValueError(_epay_http_error_message(base, exc)) from exc
     except urllib.error.URLError as exc:
         logger.error("易支付 mapi 请求失败: %s", exc)
         raise ValueError(f"易支付 mapi 请求失败: {exc}") from exc

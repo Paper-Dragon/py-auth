@@ -57,8 +57,8 @@
 
 ## 易支付与支付页
 
-- **支付页**：对外公开地址 `{PUBLIC_BASE_URL}/pay?device_id=xxx`，在「易支付」页查看解析结果
-- 须先配置 `PUBLIC_BASE_URL` 或填写完整「同步跳转」URL，后台才会显示生产域名链接（不会用 `localhost` 充当对外地址）
+- **支付页**：`{站点}/pay?device_id=xxx`；管理后台右上角「打开支付页」进入本机预览
+- 生产环境建议在 `.env` 配置 `PUBLIC_BASE_URL`，或在「异步通知 / 同步跳转」填写完整 HTTPS 地址
 - 设备须先完成客户端心跳，支付页才能解析产品与价格
 
 更多说明见仓库根目录 [docs/dev/payment.md](../../../../docs/dev/payment.md)。

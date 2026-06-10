@@ -76,6 +76,45 @@ if info != nil {
 }
 ```
 
+### 要求授权（不抛异常）
+
+```go
+ok, _ := c.RequireAuthorizationEx(false, false)
+```
+
+### 后台刷新授权
+
+```go
+handle := c.StartBackgroundRefresh(false, func(r *authclient.AuthResult) {
+	// 刷新完成回调
+})
+r := <-handle.Done
+_ = handle.Soft
+_ = r
+```
+
+### 读取缓存详情
+
+```go
+cache := c.GetCacheInfo()
+```
+
+### 查询套餐信息
+
+```go
+plan := c.GetPlanInfo()
+if plan != nil && plan.Success {
+	fmt.Println(plan.PlanLabel, plan.Price)
+}
+
+ctx := c.GetPaymentContext()
+if ctx != nil && ctx.Success {
+	fmt.Println(ctx.Plan, ctx.CanPay)
+}
+```
+
+心跳成功时 `CheckAuthorization` 返回的 `Plan` 字段表示当前生效套餐。
+
 ### 清除本地缓存
 
 ```go

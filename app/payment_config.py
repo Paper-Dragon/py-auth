@@ -6,7 +6,7 @@ from urllib.parse import urlparse
 from sqlalchemy.orm import Session
 
 from app.coerce import coerce_boolish
-from app.epay import EPAY_PAY_TYPES
+from app.epay import EPAY_PAY_TYPES, normalize_epay_api_url
 from app.models import Config
 
 EPAY_CONFIG_KEY = "epay_config"
@@ -14,7 +14,7 @@ ALL_EPAY_CHANNELS: tuple[str, ...] = tuple(sorted(EPAY_PAY_TYPES))
 
 DEFAULT_EPAY_CONFIG: dict[str, Any] = {
     "enabled": False,
-    "api_url": "https://www.ezfpy.cn",
+    "api_url": "",
     "pid": "",
     "key": "",
     "notify_url": "",
@@ -76,6 +76,7 @@ def load_epay_config(db: Session) -> dict[str, Any]:
 
     config["enabled"] = coerce_boolish(config.get("enabled"), if_none=False)
     config["enabled_channels"] = normalize_enabled_channels(config.get("enabled_channels"))
+    config["api_url"] = normalize_epay_api_url(str(config.get("api_url") or ""))
     return config
 
 
@@ -98,7 +99,7 @@ def save_epay_config(db: Session, updates: dict[str, Any], existing: dict[str, A
             current["key"] = new_key
 
     current["enabled"] = coerce_boolish(current.get("enabled"), if_none=False)
-    current["api_url"] = str(current.get("api_url", "")).strip().rstrip("/")
+    current["api_url"] = normalize_epay_api_url(str(current.get("api_url", "")))
     current["pid"] = str(current.get("pid", "")).strip()
     current["notify_url"] = str(current.get("notify_url", "")).strip()
     current["return_url"] = str(current.get("return_url", "")).strip()
@@ -192,7 +193,7 @@ def ensure_epay_credentials(
 ) -> dict[str, str]:
     if require_enabled and not coerce_boolish(config.get("enabled"), if_none=False):
         raise ValueError("易支付尚未启用")
-    api_url = str(config.get("api_url") or "").strip().rstrip("/")
+    api_url = normalize_epay_api_url(str(config.get("api_url") or ""))
     pid = str(config.get("pid") or "").strip()
     merchant_key = str(config.get("key") or "").strip()
     if not api_url or not pid or not merchant_key:

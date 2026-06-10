@@ -88,6 +88,33 @@ print(
 - `cache_remaining_time`：本地缓存剩余有效时间（默认 7 天，由 `cache_validity_days` 控制），**不是**服务端授权到期
 - `cache_valid`
 
+### 查询套餐信息
+
+```python
+plan = client.get_plan_info()
+if plan.get("success"):
+    print(plan.get("plan_label"), plan.get("price"))
+
+ctx = client.get_payment_context()
+if ctx.get("success"):
+    print(ctx.get("plan"), ctx.get("can_pay"))
+```
+
+心跳成功时 `check_authorization()` 返回的 `plan` 字段表示当前生效套餐。
+
+### 读取缓存详情
+
+```python
+cache = client.get_cache_info()
+```
+
+### 后台刷新授权
+
+```python
+soft, fut = client.start_background_refresh(on_done=lambda r: print(r))
+result = fut.result(timeout=120)
+```
+
 ### 清除本地缓存
 
 ```python
