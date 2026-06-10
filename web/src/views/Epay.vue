@@ -122,7 +122,7 @@
 
             <section class="section-block">
               <div class="section-title">
-                <h3>连接测试</h3>
+                <h3>测试</h3>
               </div>
               <div class="test-actions">
                 <el-select v-model="testPayType" style="width: 140px" placeholder="支付渠道">
@@ -140,6 +140,8 @@
                 >
                   测试连接
                 </el-button>
+              </div>
+              <div class="test-actions">
                 <el-input v-model="testPayMoney" style="width: 100px" placeholder="0.01" />
                 <el-button
                   type="warning"
@@ -372,8 +374,6 @@ const runTestConnection = async () => {
     const result = await api.testEpayConnection({ pay_type: testPayType.value })
     testConnectionOk.value = !!result.success
     testConnectionMessage.value = result.message
-    if (result.success) ElMessage.success(result.message)
-    else ElMessage.error(result.message)
   } catch (error) {
     testConnectionOk.value = false
     testConnectionMessage.value = error.message || '测试连接失败'
@@ -398,7 +398,7 @@ const runTestPayment = async () => {
     })
     if (order.pay_mode === 'qrcode' && order.qr_image) {
       await ElMessageBox.alert(
-        `<div style="text-align:center"><img src="${order.qr_image}" alt="支付二维码" style="width:220px;height:220px" /><p style="margin-top:8px">请使用对应客户端扫码（金额 ¥${order.money}）</p></div>`,
+        `<div style="text-align:center"><img src="${order.qr_image}" alt="支付二维码" style="width:220px;height:220px" /><p style="margin-top:8px">扫码支付 ¥${order.money}</p></div>`,
         '扫码支付测试',
         { dangerouslyUseHTMLString: true, confirmButtonText: '关闭' },
       )

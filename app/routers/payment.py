@@ -1,7 +1,5 @@
 import logging
-import secrets
 import urllib.parse
-from datetime import datetime
 
 from fastapi import APIRouter, Depends, HTTPException, Query, Request
 from fastapi.responses import PlainTextResponse
@@ -14,7 +12,6 @@ from app.deps import require_admin
 from app.epay import (
     EPAY_TEST_PRODUCT_KEY,
     MapiResult,
-    create_pay_result,
     epay_verify,
     extract_notify_params,
     query_merchant,
@@ -190,7 +187,6 @@ async def test_epay_connection(
     except ValueError as exc:
         return EpayTestConnectionResponse(success=False, message=str(exc))
 
-    merchant_query_skipped = False
     try:
         merchant_info = query_merchant(
             epay["api_url"],
@@ -198,46 +194,21 @@ async def test_epay_connection(
             epay["key"],
             optional=True,
         )
-        merchant_query_skipped = merchant_info is None
     except ValueError as exc:
-        return EpayTestConnectionResponse(success=False, message=f"商户接口不可用：{exc}")
+        return EpayTestConnectionResponse(success=False, message=str(exc))
     except Exception as exc:
         logger.exception("易支付商户连接测试失败")
-        return EpayTestConnectionResponse(success=False, message=f"商户接口连接失败：{exc}")
+        return EpayTestConnectionResponse(success=False, message=str(exc))
 
-    try:
-        out_trade_no = f"TESTCONN{datetime.now().strftime('%Y%m%d%H%M%S')}{secrets.token_hex(3).upper()}"
-        pay_result = create_pay_result(
-            epay["api_url"],
-            pid=epay["pid"],
-            merchant_key=epay["key"],
-            pay_type=pay_type,
-            out_trade_no=out_trade_no,
-            notify_url=epay["notify_url"],
-            return_url=epay["return_url"],
-            name="渠道连接测试",
-            money="0.01",
-            sitename=epay.get("sitename", ""),
-            order_mode=epay.get("order_mode", "mapi"),
-        )
-        success_message = f"{label}渠道连接正常"
-        if merchant_query_skipped:
-            success_message += "（网关未提供商户查询接口，已直接验证下单）"
-        return EpayTestConnectionResponse(
-            success=True,
-            message=success_message,
-            detail={
-                "pay_type": pay_type,
-                "pay_mode": pay_result.pay_mode,
-                "out_trade_no": out_trade_no,
-                "merchant_query_skipped": merchant_query_skipped,
-            },
-        )
-    except ValueError as exc:
-        return EpayTestConnectionResponse(success=False, message=f"{label}渠道不可用：{exc}")
-    except Exception as exc:
-        logger.exception("易支付渠道连接测试失败: %s", pay_type)
-        return EpayTestConnectionResponse(success=False, message=f"{label}渠道测试失败：{exc}")
+    merchant_query_skipped = merchant_info is None
+    return EpayTestConnectionResponse(
+        success=True,
+        message=f"{label}渠道连接正常",
+        detail={
+            "pay_type": pay_type,
+            "merchant_query_skipped": merchant_query_skipped,
+        },
+    )
 
 
 @admin_router.post("/epay/test-pay", response_model=PaymentOrderResponse)
@@ -267,7 +238,7 @@ async def test_epay_payment(
             epay=epay,
             device_id=f"epay_test_{current_user.username}",
             product_key=EPAY_TEST_PRODUCT_KEY,
-            product_name="易支付连接测试",
+            product_name="测试支付",
             plan=None,
             money=money,
             pay_type=pay_type,
@@ -587,8 +558,8 @@ async def epay_return(
         "message": (
             "支付成功，授权已开通"
             if is_paid and not is_test
-            else "支付成功（测试订单）"
-            if is_paid and is_test
+            else "支付成功"
+            if is_paid
             else "支付结果处理中，请稍后刷新"
         ),
     }

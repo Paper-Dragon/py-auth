@@ -123,11 +123,7 @@ def build_mapi_endpoint(api_url: str) -> str:
 
 
 def _epay_http_error_message(api_url: str, exc: Exception) -> str:
-    return (
-        f"无法连接易支付接口: {exc}。"
-        "请确认「接口地址」为网关根地址（如 https://pay.example.com），"
-        "不要包含 mapi.php、api.php 等路径"
-    )
+    return f"无法连接易支付接口: {exc}"
 
 
 def _http_post_form(url: str, fields: dict[str, str], timeout: int = 20) -> str:
