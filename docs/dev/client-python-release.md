@@ -21,5 +21,5 @@ python -m build
 安装指定版本示例：
 
 ```bash
-pip install py-auth-client==<版本> --extra-index-url https://www.geekery.cn/pip/simple/
+pip install py-auth-client==<版本>
 ```

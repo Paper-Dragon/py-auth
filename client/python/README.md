@@ -11,7 +11,7 @@
 ## 安装
 
 ```bash
-pip install py-auth-client --extra-index-url https://www.geekery.cn/pip/simple/
+pip install py-auth-client
 ```
 
 ## `AuthClient` 参数

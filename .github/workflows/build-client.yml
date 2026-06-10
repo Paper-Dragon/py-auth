@@ -182,16 +182,16 @@ jobs:
             
             ### 📥 安装
             
-            从私有镜像安装：
+            从 PyPI 安装：
             
             ```bash
-            pip install py-auth-client==${{ steps.version.outputs.version }} --extra-index-url https://www.geekery.cn/pip/simple/
+            pip install py-auth-client==${{ steps.version.outputs.version }}
             ```
             
             或者安装最新版本：
             
             ```bash
-            pip install py-auth-client --extra-index-url https://www.geekery.cn/pip/simple/
+            pip install py-auth-client
             ```
             
             ### 📚 查看变更
