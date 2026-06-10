@@ -116,5 +116,5 @@ def try_decrypt_heartbeat(
     for secret, product in _load_secret_product_pairs(db):
         data = decrypt_request_data(encrypted_data, secret)
         if data:
-            return data, secret, product
+            return data, secret, db.merge(product, load=False)
     return None, "", None
