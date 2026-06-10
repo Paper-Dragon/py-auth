@@ -57,6 +57,8 @@ def update_device(
         device.remark = allowed.get("remark")
     if "is_authorized" in allowed:
         device.is_authorized = bool(allowed.get("is_authorized"))
+        if not device.is_authorized and "manual_plan" not in allowed:
+            device.manual_plan = None
     if "is_banned" in allowed:
         device.is_banned = bool(allowed.get("is_banned"))
     if "manual_plan" in allowed:
@@ -64,10 +66,13 @@ def update_device(
         plan = str(raw_plan).strip() if raw_plan is not None else ""
         if len(plan) > MAX_MANUAL_PLAN_LEN:
             raise ValueError(f"套餐档位不能超过 {MAX_MANUAL_PLAN_LEN} 个字符")
+        had_manual_plan = bool(device.manual_plan)
         device.manual_plan = plan or None
-        # 手动套餐即视为放行：设置时立即授权，避免等待下次心跳才生效。
-        if device.manual_plan and "is_authorized" not in allowed:
-            device.is_authorized = True
+        if "is_authorized" not in allowed:
+            if device.manual_plan:
+                device.is_authorized = True
+            elif had_manual_plan:
+                device.is_authorized = False
     device.updated_at = datetime.now()
     device.created_at = original_created_at
 
