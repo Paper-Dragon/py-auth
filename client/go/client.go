@@ -8,6 +8,7 @@ import (
 	"os"
 	"runtime"
 	"strings"
+	"sync"
 	"time"
 
 	"github.com/go-resty/resty/v2"
@@ -140,6 +141,9 @@ type AuthClient struct {
 	deviceID                     string
 	deviceInfo                   DeviceInfo
 	deviceInfoDeferred           bool
+	deviceInfoMu                 sync.RWMutex
+	refreshMu                    sync.Mutex
+	refreshInFlight              bool
 	clientSecret                 string
 	cache                        *AuthCache
 	cacheValidityDays            int
@@ -287,9 +291,13 @@ func NewAuthClient(config AuthClientConfig) (*AuthClient, error) {
 }
 
 func (c *AuthClient) ensureFullDeviceInfo() {
-	if !c.deviceInfoDeferred {
+	c.deviceInfoMu.RLock()
+	deferred := c.deviceInfoDeferred
+	c.deviceInfoMu.RUnlock()
+	if !deferred {
 		return
 	}
+
 	var facts DeviceFacts
 	if c.factsPrefetch != nil {
 		facts = <-c.factsPrefetch
@@ -297,15 +305,20 @@ func (c *AuthClient) ensureFullDeviceInfo() {
 	} else {
 		facts = CollectDeviceFacts()
 	}
-	c.deviceInfo = BuildDeviceInfo(facts, nil)
-	c.deviceInfo.SoftwareVersion = c.softwareVersion
-	c.deviceInfo.SDK = &SDKInfo{
+
+	full := BuildDeviceInfo(facts, nil)
+	full.SoftwareVersion = c.softwareVersion
+	full.SDK = &SDKInfo{
 		Language:   ClientSDKLanguage,
 		SDKName:    ClientSDKName,
 		SDKVersion: ClientSDKVersion,
 		Runtime:    runtime.Version(),
 	}
+
+	c.deviceInfoMu.Lock()
+	c.deviceInfo = full
 	c.deviceInfoDeferred = false
+	c.deviceInfoMu.Unlock()
 }
 
 func deviceInfoPublicIPUnset(info *DeviceInfo) bool {
@@ -431,19 +444,29 @@ func (c *AuthClient) executeHeartbeat(di map[string]interface{}, nextHeartbeat i
 	return authResult
 }
 
-func (c *AuthClient) checkOnlineLight(nextHeartbeat int) *AuthResult {
-	c.logDebug("轻量在线订阅请求（不等待全量 device_info / 公网 IP）...")
-	di := map[string]interface{}{}
-	b, err := json.Marshal(&c.deviceInfo)
-	if err != nil {
-		return c.errorResult(fmt.Sprintf("序列化 device_info 失败: %v", err))
+func (c *AuthClient) checkOnline(nextHeartbeat int) *AuthResult {
+	c.enqueueDeviceInfoRefresh()
+	c.logDebug("开始在线订阅请求...")
+
+	c.deviceInfoMu.RLock()
+	rawSnap, marshalErr := json.Marshal(c.deviceInfo)
+	c.deviceInfoMu.RUnlock()
+	if marshalErr != nil {
+		return c.errorResult(fmt.Sprintf("序列化 device_info 失败: %v", marshalErr))
 	}
-	if err := json.Unmarshal(b, &di); err != nil {
+
+	di := map[string]interface{}{}
+	if err := json.Unmarshal(rawSnap, &di); err != nil {
 		return c.errorResult(fmt.Sprintf("构造 device_info 映射失败: %v", err))
 	}
-	needSysHint := c.deviceInfo.Sys == nil
+
+	var snap DeviceInfo
+	if err := json.Unmarshal(rawSnap, &snap); err != nil {
+		return c.errorResult(fmt.Sprintf("构造 device_info 快照失败: %v", err))
+	}
+	needSysHint := snap.Sys == nil
 	if !needSysHint {
-		needSysHint = strings.TrimSpace(c.deviceInfo.Sys.Hostname) == ""
+		needSysHint = strings.TrimSpace(snap.Sys.Hostname) == ""
 	}
 	if needSysHint {
 		host, _ := os.Hostname()
@@ -459,102 +482,64 @@ func (c *AuthClient) checkOnlineLight(nextHeartbeat int) *AuthResult {
 			sysObj["os"] = runtime.GOOS
 		}
 	}
-	return c.executeHeartbeat(di, nextHeartbeat)
-}
-
-func (c *AuthClient) checkOnline(nextHeartbeat int) *AuthResult {
-	needPublicIP := c.deviceInfoDeferred || deviceInfoPublicIPUnset(&c.deviceInfo)
-	pubCh := make(chan string, 1)
-	go func() {
-		if needPublicIP {
-			pubCh <- fetchPublicIP()
-		} else {
-			pubCh <- ""
-		}
-	}()
-	c.ensureFullDeviceInfo()
-	pub := <-pubCh
-
-	c.logDebug("开始在线订阅请求...")
-
-	di := map[string]interface{}{}
-	b, err := json.Marshal(c.deviceInfo)
-	if err != nil {
-		return c.errorResult(fmt.Sprintf("序列化 device_info 失败: %v", err))
-	}
-	if err := json.Unmarshal(b, &di); err != nil {
-		return c.errorResult(fmt.Sprintf("构造 device_info 映射失败: %v", err))
-	}
-	if pub != "" {
-		var netMap map[string]interface{}
-		if raw, ok := di["network"].(map[string]interface{}); ok && raw != nil {
-			netMap = raw
-		} else {
-			netMap = map[string]interface{}{}
-			di["network"] = netMap
-		}
-		netMap["public_ip"] = pub
-		if c.deviceInfo.Network == nil {
-			c.deviceInfo.Network = &DeviceNetwork{}
-		}
-		c.deviceInfo.Network.PublicIP = pub
-	}
 
 	return c.executeHeartbeat(di, nextHeartbeat)
 }
 
 func (c *AuthClient) checkOnlineProgressive(nextHb int) *AuthResult {
-	r1 := c.checkOnlineLight(nextHb)
-	if r1.Success {
-		if r1.Authorized {
-			c.logDebug("在线订阅成功，更新缓存")
-			hb := nextHb
-			c.persistHeartbeatResult(r1, &hb)
-			c.logDebug("轻量心跳已落盘，发起全量 device_info 补全心跳...")
-			n2 := nextHb + 1
-			r2 := c.checkOnline(n2)
-			if r2.Success {
-				c.logDebug("在线订阅成功，更新缓存")
-				var hb2 *int
-				if r2.Authorized {
-					hb2 = &n2
-				}
-				c.persistHeartbeatResult(r2, hb2)
-				return r2
-			}
-			if c.cache.IsCacheValid() {
-				cd, err := c.cache.GetCache()
-				if err == nil && cd != nil {
-					remaining := c.formatRemainingTime(cd.LastSuccessAt)
-					c.logDebug(fmt.Sprintf("补全心跳失败，沿用轻量结果，订阅剩余时间: %s", remaining))
-					return &AuthResult{
-						Authorized: true,
-						Message:    cd.Message,
-						Success:    true,
-						FromCache:  true,
-					}
-				}
-			}
-			return r2
-		}
-		c.persistHeartbeatResult(r1, nil)
-		return r1
+	return c.checkOnline(nextHb)
+}
+
+func (c *AuthClient) enqueueDeviceInfoRefresh() {
+	c.refreshMu.Lock()
+	if c.refreshInFlight {
+		c.refreshMu.Unlock()
+		return
 	}
-	r3 := c.checkOnline(nextHb)
-	if r3.Success {
-		var hb3 *int
-		if r3.Authorized {
-			hb3 = &nextHb
+	c.refreshInFlight = true
+	c.refreshMu.Unlock()
+
+	go func() {
+		defer func() {
+			c.refreshMu.Lock()
+			c.refreshInFlight = false
+			c.refreshMu.Unlock()
+		}()
+
+		c.ensureFullDeviceInfo()
+
+		c.deviceInfoMu.RLock()
+		info := c.deviceInfo
+		c.deviceInfoMu.RUnlock()
+		if !deviceInfoPublicIPUnset(&info) {
+			return
 		}
-		c.persistHeartbeatResult(r3, hb3)
-	}
-	return r3
+
+		pub := strings.TrimSpace(fetchPublicIP())
+		if pub == "" {
+			return
+		}
+		c.deviceInfoMu.Lock()
+		if c.deviceInfo.Network == nil {
+			c.deviceInfo.Network = &DeviceNetwork{}
+		}
+		c.deviceInfo.Network.PublicIP = pub
+		c.deviceInfoMu.Unlock()
+	}()
 }
 
 func (c *AuthClient) persistHeartbeatResult(online *AuthResult, hb *int) {
 	var snap *DeviceInfo
 	if online.Authorized {
-		snap = &c.deviceInfo
+		c.deviceInfoMu.RLock()
+		raw, err := json.Marshal(c.deviceInfo)
+		c.deviceInfoMu.RUnlock()
+		if err == nil {
+			var s DeviceInfo
+			if unmarshalErr := json.Unmarshal(raw, &s); unmarshalErr == nil {
+				snap = &s
+			}
+		}
 	}
 	var saveErr error
 	for attempt := 0; attempt < 3; attempt++ {

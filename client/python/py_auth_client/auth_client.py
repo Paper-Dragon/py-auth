@@ -22,9 +22,7 @@ _SECONDS_PER_DAY = 86400
 _DEFAULT_HEARTBEAT_TIMEOUT_SEC = (3.0, 3.0)
 _DEFAULT_PLAN_INFO_TIMEOUT_SEC = (5.0, 10.0)
 _DEFAULT_PAYMENT_CONTEXT_TIMEOUT_SEC = (5.0, 10.0)
-_ONLINE_CHECK_WALL_DEADLINE_SEC = 1.75
-_ONLINE_CHECK_WALL_MIN_WHEN_DEVICE_INFO_DEFERRED_SEC = 12.0
-_ONLINE_CHECK_FAST_WALL_SEC = 4.0
+_ONLINE_CHECK_WALL_DEADLINE_SEC = 4.0
 
 def _online_check_wall_deadline_sec() -> float:
     raw = os.environ.get('PY_AUTH_ONLINE_WALL_SEC', '').strip()
@@ -46,22 +44,6 @@ def _resolve_requests_timeout(value: Any, default: Any) -> Any:
     if isinstance(value, (tuple, list)) and len(value) == 2:
         return (float(value[0]), float(value[1]))
     return default
-
-
-def _online_check_effective_wall_sec(device_info_deferred: bool) -> float:
-    base = _online_check_wall_deadline_sec()
-    if not device_info_deferred:
-        return base
-    floor = float(_ONLINE_CHECK_WALL_MIN_WHEN_DEVICE_INFO_DEFERRED_SEC)
-    raw = os.environ.get('PY_AUTH_ONLINE_WALL_DEFERRED_MIN_SEC', '').strip()
-    if raw:
-        try:
-            v = float(raw)
-            if 1.0 <= v <= 60.0:
-                floor = v
-        except ValueError:
-            pass
-    return max(base, floor)
 
 
 def _device_info_lacks_nonblank_public_ip(device_info: Dict[str, Any]) -> bool:
@@ -355,6 +337,9 @@ class AuthClient:
             raise ValueError('client_secret未配置！请在初始化时传入（发行包中硬编码），或开发时设置环境变量CLIENT_SECRET。')
         self._cipher: Optional[Any] = None
         self._last_plan: Optional[str] = None
+        self._device_info_lock = threading.RLock()
+        self._refresh_lock = threading.Lock()
+        self._refresh_in_flight = False
         self.cache = AuthCache(self._storage_base, self.device_id, self.server_url, software_name=self.software_name, cache_validity_days=cache_validity_days, check_interval_days=check_interval_days)
         self._facts_prefetch_executor: Optional[ThreadPoolExecutor] = None
         self._facts_prefetch_future: Optional[Future] = None
@@ -381,12 +366,13 @@ class AuthClient:
                 pass
 
     def _ensure_full_device_info(self) -> None:
-        if not self._device_info_deferred:
-            return
-        fut = self._facts_prefetch_future
-        self._facts_prefetch_future = None
-        ex = self._facts_prefetch_executor
-        self._facts_prefetch_executor = None
+        with self._device_info_lock:
+            if not self._device_info_deferred:
+                return
+            fut = self._facts_prefetch_future
+            self._facts_prefetch_future = None
+            ex = self._facts_prefetch_executor
+            self._facts_prefetch_executor = None
         if fut is not None:
             try:
                 facts = fut.result()
@@ -399,10 +385,49 @@ class AuthClient:
                     pass
         else:
             facts = collect_device_facts()
-        self.device_info = build_device_info(facts, None)
-        self.device_info['software_version'] = self.software_version
-        self.device_info['sdk'] = {'language': 'python', 'sdk_name': 'py_auth_client', 'sdk_version': __version__, 'runtime': f'{sys.version_info.major}.{sys.version_info.minor}.{sys.version_info.micro}'}
-        self._device_info_deferred = False
+        full = build_device_info(facts, None)
+        full['software_version'] = self.software_version
+        full['sdk'] = {'language': 'python', 'sdk_name': 'py_auth_client', 'sdk_version': __version__, 'runtime': f'{sys.version_info.major}.{sys.version_info.minor}.{sys.version_info.micro}'}
+        with self._device_info_lock:
+            self.device_info = full
+            self._device_info_deferred = False
+
+    def _device_info_snapshot(self) -> Dict[str, Any]:
+        with self._device_info_lock:
+            return copy.deepcopy(self.device_info) if self.device_info else {}
+
+    def _enqueue_device_info_refresh(self) -> None:
+        """后台补全 device_info（全量采集 + 公网 IP），结果供下次心跳使用。"""
+        with self._refresh_lock:
+            if self._refresh_in_flight:
+                return
+            self._refresh_in_flight = True
+
+        def _worker() -> None:
+            try:
+                self._ensure_full_device_info()
+                with self._device_info_lock:
+                    need_pub = _device_info_lacks_nonblank_public_ip(self.device_info)
+                if not need_pub:
+                    return
+                pub = (fetch_public_ip() or '').strip()
+                if not pub:
+                    return
+                with self._device_info_lock:
+                    nw = dict(self.device_info.get('network') or {})
+                    nw['public_ip'] = pub
+                    self.device_info['network'] = nw
+            except Exception as e:
+                self._log_debug(f'后台补全 device_info 失败: {str(e)}')
+            finally:
+                with self._refresh_lock:
+                    self._refresh_in_flight = False
+
+        try:
+            get_auth_background_executor().submit(_worker)
+        except Exception:
+            with self._refresh_lock:
+                self._refresh_in_flight = False
 
     def _format_cache_remaining_time(self, cached_at: float) -> str:
         """本地授权缓存剩余有效时间（非服务端授权到期）。"""
@@ -484,80 +509,42 @@ class AuthClient:
             return {'authorized': False, 'message': f'未知错误: {str(e)}', 'success': False, 'from_cache': False}
 
     def _check_online_worker(self, heartbeat_times: int) -> Dict[str, Any]:
-        from concurrent.futures import ALL_COMPLETED, wait
-
-        _need_pub = self._device_info_deferred or _device_info_lacks_nonblank_public_ip(self.device_info)
+        """单次心跳：用当前已有的 device_info 快照上报（有多少传多少），补全交给后台线程。"""
         try:
-                                                                             
-            _pool = ThreadPoolExecutor(max_workers=2)
-            try:
-                _fe = _pool.submit(self._ensure_full_device_info)
-                _fi = _pool.submit(fetch_public_ip) if _need_pub else None
-                _futs = [_fe] + ([_fi] if _fi is not None else [])
-                wait(_futs, return_when=ALL_COMPLETED)
-                _fe.result()
-                pub = _fi.result() if _fi is not None else ''
-            finally:
-                _pool.shutdown(wait=False)
+            self._enqueue_device_info_refresh()
             self._log_debug('开始在线订阅请求...')
-            di = dict(self.device_info)
-            nw = dict(di.get('network') or {})
-            if pub:
-                nw['public_ip'] = pub
-            if nw:
-                di['network'] = nw
-            if pub:
-                self.device_info['network'] = dict(nw)
+            di = self._device_info_snapshot()
+            di['software_version'] = self.software_version
+            _base_sdk = {'language': 'python', 'sdk_name': 'py_auth_client', 'sdk_version': __version__, 'runtime': f'{sys.version_info.major}.{sys.version_info.minor}.{sys.version_info.micro}'}
+            sk = dict(di.get('sdk') or {})
+            for _k, _v in _base_sdk.items():
+                sk.setdefault(_k, _v)
+            di['sdk'] = sk
+            if not di.get('hostname'):
+                di['hostname'] = self.hostname
+            di.setdefault('platform', platform.platform())
             return self._post_heartbeat(di, heartbeat_times)
         except Exception as e:
             self._log_debug(f'在线订阅未知异常: {str(e)}')
             return {'authorized': False, 'message': f'未知错误: {str(e)}', 'success': False, 'from_cache': False}
 
-    def _check_online_fast_worker(self, heartbeat_times: int) -> Dict[str, Any]:
-        self._log_debug('轻量在线订阅请求（不等待全量 device_info / 公网 IP）...')
-        di = copy.deepcopy(self.device_info) if self.device_info else {}
-        di['software_version'] = self.software_version
-        _base_sdk = {'language': 'python', 'sdk_name': 'py_auth_client', 'sdk_version': __version__, 'runtime': f'{sys.version_info.major}.{sys.version_info.minor}.{sys.version_info.micro}'}
-        sk = dict(di.get('sdk') or {})
-        for _k, _v in _base_sdk.items():
-            sk.setdefault(_k, _v)
-        di['sdk'] = sk
-        if not di.get('hostname'):
-            di['hostname'] = self.hostname
-        di.setdefault('platform', platform.platform())
-        return self._post_heartbeat(di, heartbeat_times)
-
-    def _check_online_fast(self, heartbeat_times: int) -> Dict[str, Any]:
-        from concurrent.futures import ThreadPoolExecutor, TimeoutError as _FuturesTimeout
-
-        executor = ThreadPoolExecutor(max_workers=1)
-        try:
-            future = executor.submit(self._check_online_fast_worker, heartbeat_times)
-            try:
-                return future.result(timeout=_ONLINE_CHECK_FAST_WALL_SEC)
-            except _FuturesTimeout:
-                self._log_debug(f'轻量在线订阅超出时限 {_ONLINE_CHECK_FAST_WALL_SEC:g}s')
-                return {'authorized': False, 'message': f'连接失败: 轻量请求超时（{_ONLINE_CHECK_FAST_WALL_SEC:g}s）', 'success': False, 'from_cache': False}
-        finally:
-            executor.shutdown(wait=False)
-
     def _check_online(self, heartbeat_times: int) -> Dict[str, Any]:
         from concurrent.futures import ThreadPoolExecutor, TimeoutError as _FuturesTimeout
-        _wall = _online_check_effective_wall_sec(self._device_info_deferred or _device_info_lacks_nonblank_public_ip(self.device_info))
+        _wall = _online_check_wall_deadline_sec()
         executor = ThreadPoolExecutor(max_workers=1)
         try:
             future = executor.submit(self._check_online_worker, heartbeat_times)
             try:
                 return future.result(timeout=_wall)
             except _FuturesTimeout:
-                self._log_debug(f'在线订阅超出总时限 {_wall}s（含 device_info 推迟时的全量采集 + 公网 IP + 心跳；Windows 等对无服务地址的 TCP 重传可能绕过单阶段 timeout）')
+                self._log_debug(f'在线订阅超出总时限 {_wall}s（Windows 等对无服务地址的 TCP 重传可能绕过单阶段 timeout）')
                 return {'authorized': False, 'message': f'连接失败: 请求超时（在线阶段墙钟上限 {_wall:g}s）', 'success': False, 'from_cache': False}
         finally:
             executor.shutdown(wait=False)
 
     def _write_check_cache_retries(self, online_result: Dict[str, Any], heartbeat_times_if_authorized: Optional[int]) -> bool:
         hb = heartbeat_times_if_authorized if online_result.get('authorized') else None
-        snap = copy.deepcopy(self.device_info) if online_result.get('authorized') else None
+        snap = self._device_info_snapshot() if online_result.get('authorized') else None
         saved = False
         for _attempt in range(3):
             if self.cache.save_cache(online_result['authorized'], '', heartbeat_times=hb, device_info_snapshot=snap):
@@ -568,79 +555,8 @@ class AuthClient:
         return saved
 
     def check_authorization_progressive(self, force_online: bool=False) -> Dict[str, Any]:
-        cache_data = None
-        stored_hb = 0
-        try:
-            if self.debug:
-                cf = self.cache.cache_file
-                now = cf.exists()
-                pre = self._state_bundle_existed_before_init
-                if now and pre:
-                    state_desc = '启动前已存在'
-                elif now and (not pre):
-                    state_desc = '启动前不存在，构造客户端时已新建（device_id 持久化）'
-                elif not now and pre:
-                    state_desc = '启动前曾有，当前缺失（异常）'
-                else:
-                    state_desc = '不存在（持久化可能失败）'
-                try:
-                    raw_sz = cf.stat().st_size if cf.exists() else 0
-                except Exception:
-                    raw_sz = 0
-                self._log_debug(f'状态包: {cf} | {state_desc} | 密文 {raw_sz} bytes')
-            cache_data, stored_hb = self.cache._snapshot_auth_row()
-        except Exception:
-            self._log_debug('读取缓存异常')
-            cache_data = None
-            stored_hb = 0
-        cache_valid = self.cache._is_cache_valid_dict(cache_data)
-        if cache_valid:
-            self._log_debug('本地缓存仍在有效期内（在线失败时可作后备）')
-            self._log_debug('缓存有效，继续尝试在线订阅来更新订阅')
-        elif cache_data:
-            self._log_debug('缓存存在但已过期，准备发起在线订阅请求')
-        else:
-            self._log_debug('未找到缓存，准备发起在线订阅请求')
-        next_hb = stored_hb + 1
-        _ = force_online
-
-        r_fast = self._check_online_fast(next_hb)
-        if r_fast.get('success'):
-            if r_fast.get('authorized'):
-                self._log_debug('在线订阅成功，更新缓存')
-                self._write_check_cache_retries(r_fast, next_hb)
-                self._log_debug('轻量心跳已落盘，发起全量 device_info 补全心跳...')
-                r_full = self._check_online(next_hb + 1)
-                if r_full.get('success'):
-                    self._log_debug('在线订阅成功，更新缓存')
-                    self._write_check_cache_retries(r_full, (next_hb + 1) if r_full.get('authorized') else None)
-                    return r_full
-                gc = self.cache.get_cache()
-                if gc and self.cache.is_cache_valid():
-                    remaining = self._format_cache_remaining_time(gc.get('cached_at', 0))
-                    self._log_debug(f'补全心跳失败，沿用轻量结果，缓存剩余有效期: {remaining}')
-                    return {'authorized': True, 'message': gc.get('message', ''), 'success': True, 'from_cache': True}
-                return r_full
-            self._write_check_cache_retries(r_fast, None)
-            return r_fast
-
-        online_result = self._check_online(next_hb)
-        if online_result['success']:
-            self._log_debug('在线订阅成功，更新缓存')
-            self._write_check_cache_retries(online_result, next_hb if online_result['authorized'] else None)
-            return online_result
-        if cache_valid and not online_result.get('is_auth_error'):
-            cached_at = cache_data.get('cached_at', 0)
-            remaining = self._format_cache_remaining_time(cached_at)
-            self._log_debug(f"在线订阅失败，但缓存有效，使用缓存结果: {online_result.get('message')}，缓存剩余有效期: {remaining}")
-            return {'authorized': True, 'message': cache_data.get('message', ''), 'success': True, 'from_cache': True}
-        if cache_data:
-            cached_at = cache_data.get('cached_at', 0)
-            remaining = self._format_cache_remaining_time(cached_at)
-            self._log_debug(f"在线订阅失败，缓存已过期，返回失败结果: {online_result.get('message')}，缓存剩余有效期: {remaining}")
-        else:
-            self._log_debug(f"在线订阅失败，返回失败结果: {online_result.get('message')}")
-        return online_result
+        """兼容保留：现与 check_authorization 等价（单心跳 + 后台补全 device_info）。"""
+        return self.check_authorization(force_online=force_online)
 
     def check_authorization(self, force_online: bool=False) -> Dict[str, Any]:
         cache_data = None

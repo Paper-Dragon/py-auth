@@ -25,7 +25,7 @@
 |------|--------|----|------------|
 | 设备 ID / 服务地址 | `device_id` / `server_url` | `DeviceID()` / `ServerURL()` | `deviceId` / `serverUrl` |
 | 在线校验授权 | `check_authorization` | `CheckAuthorization` | `checkAuthorization` |
-| 渐进式在线校验 | `check_authorization_progressive` | `CheckAuthorizationProgressive` | `checkAuthorizationProgressive` |
+| 渐进式在线校验（兼容别名，等价于在线校验） | `check_authorization_progressive` | `CheckAuthorizationProgressive` | `checkAuthorizationProgressive` |
 | 要求授权通过 | `require_authorization` | `RequireAuthorization` | `requireAuthorization` |
 | 要求授权（可不抛异常） | `require_authorization(raise_exception=False)` | `RequireAuthorizationEx(forceOnline, false)` | `requireAuthorization({ raiseException: false })` |
 | 本地快照可软启动 | `can_soft_launch` | `CanSoftLaunch` | `canSoftLaunch` |
@@ -71,6 +71,9 @@
 
 ## 行为说明
 
+- 心跳只有一种：每次校验发送一次心跳，携带当前本地已有的 `device_info` 快照（有多少传多少）
+- 设备信息补全（全量采集、公网 IP）在后台线程异步进行，结果写入内存与本地快照，供下次心跳上报
+- `check_authorization_progressive` 等渐进式方法保留为兼容别名，行为与 `check_authorization` 一致，不再发起第二次补全心跳
 - `check_*` / `Check*` / `check*` 会优先尝试在线心跳
 - 在线请求失败时，如果本地缓存仍在有效期内，可能返回缓存授权结果
 - `get_authorization_info` / `GetAuthorizationInfo` / `getAuthorizationInfo` 只读本地，不联网；其中 `cache_remaining_time` 表示本地缓存剩余有效期，不是服务端授权到期

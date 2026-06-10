@@ -24,7 +24,6 @@ const SECONDS_PER_DAY = 86400;
 const DEFAULT_HEARTBEAT_TIMEOUT_MS = 3_000;
 const DEFAULT_PLAN_INFO_TIMEOUT_MS = 10_000;
 const DEFAULT_PAYMENT_CONTEXT_TIMEOUT_MS = 10_000;
-const HEARTBEAT_LIGHT_TIMEOUT_MS = 4_000;
 
 function resolveTimeoutMs(value: number | undefined, fallback: number): number {
   return value && value > 0 ? value : fallback;
@@ -58,6 +57,7 @@ export class AuthClient {
   private readonly cache: AuthCache;
   private readonly stateBundleExistedBeforeInit: boolean;
   private lastPlan: string | undefined;
+  private refreshInFlight = false;
   private readonly heartbeatTimeoutMs: number;
   private readonly planInfoTimeoutMs: number;
   private readonly paymentContextTimeoutMs: number;
@@ -159,6 +159,31 @@ export class AuthClient {
     this.deviceInfoDeferred = false;
   }
 
+  /** 后台补全 device_info（全量采集 + 公网 IP），结果供下次心跳使用。 */
+  private enqueueDeviceInfoRefresh(): void {
+    if (this.refreshInFlight) return;
+    this.refreshInFlight = true;
+    void (async () => {
+      try {
+        this.ensureFullDeviceInfo();
+        const hasPublicIp =
+          typeof this.deviceInfo.network?.public_ip === "string" &&
+          this.deviceInfo.network.public_ip.trim() !== "";
+        if (hasPublicIp) return;
+        const pub = (await fetchPublicIp()).trim();
+        if (!pub) return;
+        this.deviceInfo = {
+          ...this.deviceInfo,
+          network: { ...(this.deviceInfo.network ?? {}), public_ip: pub },
+        };
+      } catch (e: unknown) {
+        this.logDebug(`后台补全 device_info 失败: ${String(e)}`);
+      } finally {
+        this.refreshInFlight = false;
+      }
+    })();
+  }
+
   private formatRemainingTime(cachedAtSeconds: number): string {
     if (!cachedAtSeconds || cachedAtSeconds <= 0) return "未知";
 
@@ -228,10 +253,12 @@ export class AuthClient {
     return { authorized: false, message: msg, success: false, from_cache: false, is_auth_error: status === 403 };
   }
 
-  private async checkOnlineLight(heartbeatTimes: number): Promise<AuthResult> {
+  private async checkOnline(heartbeatTimes: number): Promise<AuthResult> {
     try {
-      this.logDebug("轻量在线订阅请求（不等待全量 device_info / 公网 IP）...");
-      const light: DeviceInfo = {
+      this.enqueueDeviceInfoRefresh();
+      this.logDebug("开始在线订阅请求...");
+
+      const device_info: DeviceInfo = {
         ...this.deviceInfo,
         software_version: this.softwareVersion,
         system: {
@@ -239,35 +266,6 @@ export class AuthClient {
           hostname: this.deviceInfo.system?.hostname?.trim() || os.hostname(),
           os: this.deviceInfo.system?.os || process.platform,
         },
-      };
-      return await this.postHeartbeatDeviceInfo(light, heartbeatTimes, HEARTBEAT_LIGHT_TIMEOUT_MS);
-    } catch (e: any) {
-      const msg = e?.name === "AbortError" ? "连接失败: timeout" : `连接失败: ${String(e?.message ?? e)}`;
-      this.logDebug(`在线订阅请求异常: ${msg}`);
-      return { authorized: false, message: msg, success: false, from_cache: false };
-    }
-  }
-
-  private async checkOnline(heartbeatTimes: number): Promise<AuthResult> {
-    try {
-      const hasPublicIp =
-        typeof this.deviceInfo.network?.public_ip === "string" &&
-        this.deviceInfo.network.public_ip.trim() !== "";
-      const needPublicIp = this.deviceInfoDeferred || !hasPublicIp;
-      
-      const pubPromise = needPublicIp ? fetchPublicIp() : Promise.resolve("");
-      this.ensureFullDeviceInfo();
-      this.logDebug("开始在线订阅请求...");
-
-      const pub = await pubPromise;
-      const nw = { ...(this.deviceInfo.network ?? {}) };
-      if (pub) nw.public_ip = pub;
-      if (pub) {
-        this.deviceInfo = { ...this.deviceInfo, network: nw };
-      }
-      const device_info: DeviceInfo = {
-        ...this.deviceInfo,
-        ...(Object.keys(nw).length > 0 ? { network: nw } : {}),
       };
       return await this.postHeartbeatDeviceInfo(device_info, heartbeatTimes, this.heartbeatTimeoutMs);
     } catch (e: any) {
@@ -335,79 +333,9 @@ export class AuthClient {
     return onlineResult;
   }
 
-  async checkAuthorizationProgressive(_forceOnline = false): Promise<AuthResult> {
-    if (this.debug) {
-      const cf = this.cache.cacheFile;
-      const fileNow = fs.existsSync(cf);
-      const pre = this.stateBundleExistedBeforeInit;
-      let desc = "不存在（持久化可能失败）";
-      if (fileNow && pre) desc = "启动前已存在";
-      else if (fileNow && !pre) desc = "启动前不存在，构造客户端时已新建（device_id 持久化）";
-      else if (!fileNow && pre) desc = "启动前曾有，当前缺失（异常）";
-      this.logDebug(`状态包: ${cf} | ${desc}`);
-    }
-
-    const snap = this.cache.snapshotForAuthorizationCheck();
-    const cacheData = snap.cacheData;
-    const cacheValid = this.cache.isCacheTTLValid(cacheData);
-
-    if (cacheValid) {
-      this.logDebug("本地缓存仍在有效期内（在线失败时可作后备）");
-      this.logDebug("缓存有效，继续尝试在线订阅来更新订阅");
-    } else {
-      this.logDebug(cacheData ? "缓存存在但已过期，准备发起在线订阅请求" : "未找到缓存，准备发起在线订阅请求");
-    }
-
-    const nextHb = snap.storedHeartbeatTimes + 1;
-
-    const rFast = await this.checkOnlineLight(nextHb);
-    if (rFast.success) {
-      if (rFast.authorized) {
-        this.logDebug("在线订阅成功，更新缓存");
-        this.persistOnlineResult(rFast, nextHb);
-        this.logDebug("轻量心跳已落盘，发起全量 device_info 补全心跳...");
-        const rFull = await this.checkOnline(nextHb + 1);
-        if (rFull.success) {
-          this.logDebug("在线订阅成功，更新缓存");
-          this.persistOnlineResult(rFull, rFull.authorized ? nextHb + 1 : undefined);
-          return rFull;
-        }
-        const gc = this.cache.getCache();
-        if (gc && this.cache.isCacheTTLValid(gc)) {
-          const remaining = this.formatRemainingTime(gc.cachedAt);
-          this.logDebug(`补全心跳失败，沿用轻量结果，订阅剩余时间: ${remaining}`);
-          return {
-            authorized: gc.authorized,
-            message: gc.message,
-            success: true,
-            from_cache: true,
-          };
-        }
-        return rFull;
-      }
-      this.persistOnlineResult(rFast, undefined);
-      return rFast;
-    }
-
-    const onlineResult = await this.checkOnline(nextHb);
-    if (onlineResult.success) {
-      this.logDebug("在线订阅成功，更新缓存");
-      this.persistOnlineResult(onlineResult, onlineResult.authorized ? nextHb : undefined);
-      return onlineResult;
-    }
-
-    if (cacheValid && cacheData && !onlineResult.is_auth_error) {
-      const remaining = this.formatRemainingTime(cacheData.cachedAt);
-      this.logDebug(`在线订阅失败，但缓存有效，使用缓存结果，订阅剩余时间: ${remaining}`);
-      return {
-        authorized: cacheData.authorized,
-        message: cacheData.message,
-        success: true,
-        from_cache: true,
-      };
-    }
-
-    return onlineResult;
+  /** 兼容保留：现与 checkAuthorization 等价（单心跳 + 后台补全 device_info）。 */
+  async checkAuthorizationProgressive(forceOnline = false): Promise<AuthResult> {
+    return this.checkAuthorization(forceOnline);
   }
 
   async requireAuthorization(
