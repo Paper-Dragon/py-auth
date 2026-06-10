@@ -27,6 +27,9 @@ pip install py-auth-client --extra-index-url https://www.geekery.cn/pip/simple/
 | `check_interval_days` | 可选 | 检查间隔，默认 `2` |
 | `debug` | 可选 | 是否输出调试日志 |
 | `software_version` | 可选 | 软件版本 |
+| `heartbeat_timeout_sec` | 可选 | 心跳超时（秒或 `(connect, read)` 元组）；默认 `(3.0, 3.0)` |
+| `plan_info_timeout_sec` | 可选 | 套餐查询超时；默认 `(5.0, 10.0)` |
+| `payment_context_timeout_sec` | 可选 | 付费上下文查询超时；默认 `(5.0, 10.0)` |
 
 ### 关于 `client_secret`（可信接入标识）
 
@@ -93,14 +96,16 @@ print(
 ```python
 plan = client.get_plan_info()
 if plan.get("success"):
-    print(plan.get("plan_label"), plan.get("price"))
+    print(plan.get("plan"), plan.get("price"))
+    if plan.get("plan_detail"):
+        print(plan.get("plan_detail"))
 
 ctx = client.get_payment_context()
 if ctx.get("success"):
     print(ctx.get("plan"), ctx.get("can_pay"))
 ```
 
-心跳成功时 `check_authorization()` 返回的 `plan` 字段表示当前生效套餐。
+`get_plan_info()` 返回产品套餐配置（档位、价格、详情等），不表示本机是否已付款。心跳返回的 `authorized` 表示能否上线；`plan` 表示当前生效档位。
 
 ### 读取缓存详情
 

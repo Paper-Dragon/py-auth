@@ -39,21 +39,40 @@ def apply_device_filters(
             )
         )
 
-    if auth_status == "authorized":
-        query = query.filter(Device.is_authorized.is_(True))
+    if auth_status == "online":
+        query = query.filter(
+            Device.is_authorized.is_(True),
+            Device.is_banned.is_(False),
+        )
     elif auth_status == "unauthorized":
-        query = query.filter(Device.is_authorized.is_(False))
+        query = query.filter(
+            Device.is_authorized.is_(False),
+            Device.is_banned.is_(False),
+        )
+    elif auth_status == "banned":
+        query = query.filter(Device.is_banned.is_(True))
+    elif auth_status == "authorized":
+        query = query.filter(Device.is_authorized.is_(True))
 
     return query
 
 
 def build_device_summary(query) -> DeviceListSummary:
     total = query.count()
-    authorized = query.filter(Device.is_authorized.is_(True)).count()
+    banned = query.filter(Device.is_banned.is_(True)).count()
+    online = query.filter(
+        Device.is_authorized.is_(True),
+        Device.is_banned.is_(False),
+    ).count()
+    unauthorized = query.filter(
+        Device.is_authorized.is_(False),
+        Device.is_banned.is_(False),
+    ).count()
     return DeviceListSummary(
         total=total,
-        authorized=authorized,
-        unauthorized=max(0, total - authorized),
+        online=online,
+        banned=banned,
+        unauthorized=unauthorized,
     )
 
 

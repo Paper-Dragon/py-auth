@@ -4,7 +4,6 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
-	"net"
 	"net/http"
 	"os"
 	"runtime"
@@ -18,21 +17,7 @@ const (
 	secondsPerMinute = 60
 	secondsPerHour   = 3600
 	secondsPerDay    = 86400
-	
-	heartbeatHTTPClientTimeout       = 2 * time.Second
-	heartbeatHTTPDialTLSHeaderBudget = 900 * time.Millisecond
 )
-
-var heartbeatHTTPClient = &http.Client{
-	Timeout: heartbeatHTTPClientTimeout,
-	Transport: &http.Transport{
-		Proxy:                 http.ProxyFromEnvironment,
-		DialContext:           (&net.Dialer{Timeout: heartbeatHTTPDialTLSHeaderBudget}).DialContext,
-		TLSHandshakeTimeout:   heartbeatHTTPDialTLSHeaderBudget,
-		ResponseHeaderTimeout: heartbeatHTTPClientTimeout,
-		IdleConnTimeout:       90 * time.Second,
-	},
-}
 
 type AuthResult struct {
 	Authorized  bool   `json:"authorized"`
@@ -126,6 +111,14 @@ func (e *AuthorizationError) IsNetworkError() bool {
 	return false
 }
 
+func (e *AuthorizationError) IsTimeout() bool {
+	message := e.Message
+	if e.Result != nil {
+		message = e.Result.Message
+	}
+	return isTimeoutMessage(message)
+}
+
 func (e *AuthorizationError) IsUnauthorized() bool {
 	if e.Result != nil {
 		return !e.Result.Authorized && e.Result.Success
@@ -146,7 +139,7 @@ type AuthClient struct {
 	softwareVersion              string
 	deviceID                     string
 	deviceInfo                   DeviceInfo
-	deviceInfoDeferred           bool 
+	deviceInfoDeferred           bool
 	clientSecret                 string
 	cache                        *AuthCache
 	cacheValidityDays            int
@@ -155,18 +148,24 @@ type AuthClient struct {
 	stateBundleExistedBeforeInit bool
 	lastPlan                     string
 	factsPrefetch                chan DeviceFacts
+	heartbeatHTTPClient          *http.Client
+	planInfoHTTPClient           *http.Client
+	paymentContextHTTPClient     *http.Client
 }
 
 type AuthClientConfig struct {
-	ServerURL         string
-	SoftwareName      string
-	SoftwareVersion   string
-	DeviceID          string
-	DeviceInfo        *DeviceInfo
-	ClientSecret      string
-	CacheValidityDays int
-	CheckIntervalDays int
-	Debug             bool
+	ServerURL             string
+	SoftwareName          string
+	SoftwareVersion       string
+	DeviceID              string
+	DeviceInfo            *DeviceInfo
+	ClientSecret          string
+	CacheValidityDays     int
+	CheckIntervalDays     int
+	Debug                 bool
+	HeartbeatTimeout      time.Duration
+	PlanInfoTimeout       time.Duration
+	PaymentContextTimeout time.Duration
 }
 
 func NewAuthClient(config AuthClientConfig) (*AuthClient, error) {
@@ -201,6 +200,13 @@ func NewAuthClient(config AuthClientConfig) (*AuthClient, error) {
 	if client.checkIntervalDays == 0 {
 		client.checkIntervalDays = 2
 	}
+
+	heartbeatTimeout := resolveTimeout(config.HeartbeatTimeout, defaultHeartbeatTimeout)
+	planInfoTimeout := resolveTimeout(config.PlanInfoTimeout, defaultPlanInfoTimeout)
+	paymentContextTimeout := resolveTimeout(config.PaymentContextTimeout, defaultPaymentContextTimeout)
+	client.heartbeatHTTPClient = buildHTTPClient(heartbeatTimeout)
+	client.planInfoHTTPClient = buildHTTPClient(planInfoTimeout)
+	client.paymentContextHTTPClient = buildHTTPClient(paymentContextTimeout)
 
 	storageBase := DefaultClientStorageRoot()
 	_ = os.MkdirAll(storageBase, 0o755)
@@ -354,7 +360,7 @@ func (c *AuthClient) executeHeartbeat(di map[string]interface{}, nextHeartbeat i
 		return c.errorResult(fmt.Sprintf("加密请求失败: %v", err))
 	}
 
-	resp, err := resty.NewWithClient(heartbeatHTTPClient).R().
+	resp, err := resty.NewWithClient(c.heartbeatHTTPClient).R().
 		SetHeader("Content-Type", "application/json").
 		SetBody(map[string]string{"encrypted_data": encrypted}).
 		SetResult(map[string]interface{}{}).
@@ -808,7 +814,7 @@ func (c *AuthClient) GetPlanInfo() *PlanInfo {
 		return &PlanInfo{Success: false, Message: fmt.Sprintf("加密请求失败: %v", err)}
 	}
 
-	resp, err := resty.NewWithClient(heartbeatHTTPClient).R().
+	resp, err := resty.NewWithClient(c.planInfoHTTPClient).R().
 		SetHeader("Content-Type", "application/json").
 		SetBody(map[string]string{"encrypted_data": encrypted}).
 		SetResult(map[string]interface{}{}).
@@ -851,7 +857,7 @@ func (c *AuthClient) GetPlanInfo() *PlanInfo {
 }
 
 func (c *AuthClient) GetPaymentContext() *PaymentContext {
-	resp, err := resty.NewWithClient(heartbeatHTTPClient).R().
+	resp, err := resty.NewWithClient(c.paymentContextHTTPClient).R().
 		SetQueryParam("device_id", c.deviceID).
 		SetResult(map[string]interface{}{}).
 		Get(fmt.Sprintf("%s/api/payment/device-context", c.serverURL))
@@ -893,29 +899,29 @@ func (c *AuthClient) GetAuthorizationInfo() *AuthorizationInfo {
 	var info *AuthorizationInfo
 	if err == nil && cache != nil {
 		info = &AuthorizationInfo{
-			Authorized:    true,
-			Success:         true,
-			FromCache:       true,
-			Message:         cache.Message,
-			DeviceID:        c.deviceID,
-			ServerURL:       c.serverURL,
-			CachedAt:        cache.LastSuccessAt,
+			Authorized:         true,
+			Success:            true,
+			FromCache:          true,
+			Message:            cache.Message,
+			DeviceID:           c.deviceID,
+			ServerURL:          c.serverURL,
+			CachedAt:           cache.LastSuccessAt,
 			CacheRemainingTime: c.formatRemainingTime(cache.LastSuccessAt),
-			CacheValid:      c.cache.IsCacheValid(),
+			CacheValid:         c.cache.IsCacheValid(),
 		}
 		if cache.LastSuccessAt > 0 {
 			info.CachedAtReadable = time.Unix(int64(cache.LastSuccessAt), 0).Format("2006-01-02 15:04:05")
 		}
 	} else {
 		info = &AuthorizationInfo{
-			Authorized:    false,
-			Success:         false,
-			FromCache:       false,
-			Message:         "无本地授权缓存",
-			DeviceID:        c.deviceID,
-			ServerURL:       c.serverURL,
+			Authorized:         false,
+			Success:            false,
+			FromCache:          false,
+			Message:            "无本地授权缓存",
+			DeviceID:           c.deviceID,
+			ServerURL:          c.serverURL,
 			CacheRemainingTime: "无缓存",
-			CacheValid:      false,
+			CacheValid:         false,
 		}
 	}
 

@@ -161,4 +161,7 @@ export interface AuthClientConfig {
   cacheValidityDays?: number;
   checkIntervalDays?: number;
   debug?: boolean;
+  heartbeatTimeoutMs?: number;
+  planInfoTimeoutMs?: number;
+  paymentContextTimeoutMs?: number;
 }

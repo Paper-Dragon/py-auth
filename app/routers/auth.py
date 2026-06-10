@@ -91,6 +91,9 @@ def _process_device(
     device.last_check = datetime.now()
     db.commit()
     db.refresh(device)
+
+    if device.is_banned:
+        return device, created, "设备已封禁", evaluation.plan
     return device, created, evaluation.message, evaluation.plan
 
 
@@ -128,7 +131,7 @@ async def heartbeat(
     })
 
     response_data: dict = {
-        "authorized": device.is_authorized,
+        "authorized": device.is_authorized and not device.is_banned,
         "message": message,
     }
     if plan:

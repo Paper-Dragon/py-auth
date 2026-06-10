@@ -17,7 +17,9 @@ from app.product_resolve import build_product_key_map
 
 MAX_BULK_DELETE = 200
 
-_UPDATABLE_FIELDS = ("remark", "is_authorized")
+_UPDATABLE_FIELDS = ("remark", "is_authorized", "is_banned", "manual_plan")
+
+MAX_MANUAL_PLAN_LEN = 64
 
 
 def _extract_allowed_updates(raw_update: Any) -> dict[str, Any]:
@@ -55,6 +57,14 @@ def update_device(
         device.remark = allowed.get("remark")
     if "is_authorized" in allowed:
         device.is_authorized = bool(allowed.get("is_authorized"))
+    if "is_banned" in allowed:
+        device.is_banned = bool(allowed.get("is_banned"))
+    if "manual_plan" in allowed:
+        raw_plan = allowed.get("manual_plan")
+        plan = str(raw_plan).strip() if raw_plan is not None else ""
+        if len(plan) > MAX_MANUAL_PLAN_LEN:
+            raise ValueError(f"套餐档位不能超过 {MAX_MANUAL_PLAN_LEN} 个字符")
+        device.manual_plan = plan or None
     device.updated_at = datetime.now()
     device.created_at = original_created_at
 

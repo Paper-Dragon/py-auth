@@ -37,8 +37,37 @@
 | 读取缓存详情 | `get_cache_info` | `GetCacheInfo` | `getCacheInfo` |
 | 查询套餐信息（加密 API） | `get_plan_info` | `GetPlanInfo` | `getPlanInfo` |
 | 查询设备付费上下文 | `get_payment_context` | `GetPaymentContext` | `getPaymentContext` |
+| HTTP 超时配置 | `heartbeat_timeout_sec` / `plan_info_timeout_sec` / `payment_context_timeout_sec` | `HeartbeatTimeout` / `PlanInfoTimeout` / `PaymentContextTimeout` | `heartbeatTimeoutMs` / `planInfoTimeoutMs` / `paymentContextTimeoutMs` |
+| 判断超时错误 | `AuthorizationError.is_timeout` | `AuthorizationError.IsTimeout()` | `AuthorizationError.isTimeout()` |
 | 清除本地缓存 | `clear_cache` | `ClearCache` | `clearCache` |
 | 获取存储根路径 | `get_client_storage_root` | `DefaultClientStorageRoot` | `getClientStorageRoot` |
+
+### 套餐信息 API 返回字段
+
+`get_plan_info` / `getPlanInfo` / `GetPlanInfo` 与 `get_payment_context` 中的套餐字段一致：
+
+| 字段 | 说明 |
+|------|------|
+| `plan` | 付费档位代号，如 `pro` |
+| `plan_detail` | 套餐详情文案 |
+| `price` | 价格（付费模式） |
+| `pay_type` | 支付方式 |
+| `can_pay` | 是否可发起支付 |
+| `auth_mode` | 产品授权模式 |
+
+心跳返回的 `authorized` 表示**能否上线**；管理员封禁后即为 `false`，与是否已配置套餐无关。
+
+## HTTP 超时默认值
+
+三端对不同类型请求使用独立超时，避免辅助接口与心跳共用短时限：
+
+| 请求 | 默认超时 |
+|------|----------|
+| 心跳 `/api/auth/heartbeat` | 3s |
+| 套餐 `/api/auth/plan-info` | 10s（连接 5s + 读取 10s，Python） |
+| 付费上下文 `/api/payment/device-context` | 10s |
+
+传 `0` 或未配置时使用上表默认值。弱网场景可单独加大 `plan-info` / `device-context` 超时。
 
 ## 行为说明
 

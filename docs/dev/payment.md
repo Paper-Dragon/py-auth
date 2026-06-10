@@ -47,6 +47,37 @@ PUBLIC_BASE_URL=https://auth.example.com
 
 保存后可在同一页面查看 **实际回调**、**实际跳转**、**支付页** 三类解析结果。
 
+### 网关对接说明
+
+服务端易支付实现基于 [ezfpy 官方 Python SDK](https://www.ezfpy.cn/download/python.zip)（`app/ezfpy_sdk.py`）：
+
+| 能力 | 接口 |
+|------|------|
+| 页面跳转支付 | `submit.php` |
+| API 支付（二维码/跳转） | `mapi.php` |
+| 订单查询（同步） | `api/findorder` |
+
+部分网关不提供 `api.php?act=query` / `act=order`。**连接测试**仅验证网关可达，不会创建测试订单；验证支付请使用「测试支付」并由管理员扫码完成。
+
+接口地址填写网关根地址即可，例如 `https://www.ezfpy.cn`，不要包含 `mapi.php` 等路径。
+
+## 套餐信息字段
+
+客户端 `POST /api/auth/plan-info` 与公开接口 `GET /api/payment/device-context` 返回的套餐相关字段：
+
+| 字段 | 说明 |
+|------|------|
+| `display_name` | 产品展示名 |
+| `software_name` | 软件名称 |
+| `auth_mode` | `open` / `manual` / `paid` |
+| `plan` | 付费档位代号（产品配置中的「付费档位」） |
+| `plan_detail` | 套餐详情文案（产品配置中填写） |
+| `price` | 价格（仅付费模式） |
+| `pay_type` | 支付方式 |
+| `can_pay` | 当前是否可发起支付 |
+
+`plan-info` 描述**产品套餐配置**，不表示某台设备是否已付款或是否被封禁。设备付款状态见管理后台「套餐信息」列；授权权益与封禁分别见「授权状态」「封禁状态」两列。
+
 ## 支付流程
 
 ```text

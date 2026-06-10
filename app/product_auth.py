@@ -59,7 +59,16 @@ def has_paid_order(db: Session, device_id: str, product_key: str) -> bool:
     )
 
 
+def device_manual_plan(device: Device) -> str | None:
+    manual = (getattr(device, "manual_plan", None) or "").strip()
+    return manual or None
+
+
 def get_device_plan(db: Session, device: Device, product: Product | None) -> str | None:
+    manual = device_manual_plan(device)
+    if manual:
+        return manual
+
     if not product:
         return None
 
@@ -152,22 +161,36 @@ def build_device_plan_display(
     if not product:
         return empty
 
+    manual = device_manual_plan(device)
+    if manual:
+        return {
+            "plan_label": format_plan_name(manual),
+            "plan_hint": "手动套餐",
+            "plan_tag": "warning",
+        }
+
     mode = product.auth_mode
     plan = evaluation.plan
     paid = has_paid_order(db, device.device_id, product.key)
 
     if mode == AUTH_MODE_PAID:
         target_plan = plan or plan_from_product(product)
-        if not evaluation.authorized and not paid:
+        if paid:
             return {
-                "plan_label": "待付费",
-                "plan_hint": format_plan_name(target_plan),
-                "plan_tag": "danger",
+                "plan_label": format_plan_name(target_plan),
+                "plan_hint": "已付费",
+                "plan_tag": "success",
+            }
+        if evaluation.authorized:
+            return {
+                "plan_label": format_plan_name(target_plan),
+                "plan_hint": "手动授权",
+                "plan_tag": "warning",
             }
         return {
-            "plan_label": format_plan_name(target_plan),
-            "plan_hint": "已付费" if paid else ("手动授权" if device.is_authorized else None),
-            "plan_tag": "success" if paid else "warning",
+            "plan_label": "待付费",
+            "plan_hint": format_plan_name(target_plan),
+            "plan_tag": "danger",
         }
 
     if mode == AUTH_MODE_OPEN:

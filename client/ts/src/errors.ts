@@ -27,6 +27,19 @@ export class AuthorizationError extends Error {
     });
   }
 
+  isTimeout(): boolean {
+    const sources = [this.message, this.result?.message ?? ""];
+    return sources.some((text) => {
+      const lower = text.toLowerCase();
+      return (
+        lower.includes("timeout") ||
+        text.includes("超时") ||
+        lower.includes("deadline exceeded") ||
+        lower.includes("context deadline")
+      );
+    });
+  }
+
   isUnauthorized(): boolean {
     if (this.result) {
       return !this.result.authorized && this.result.success;

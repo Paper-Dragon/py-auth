@@ -20,6 +20,8 @@ class DeviceResponse(BaseModel):
     device_info: Optional[Dict[str, Any]] = None                                      
     remark: Optional[str]
     is_authorized: bool
+    is_banned: bool = False
+    manual_plan: Optional[str] = None
     product_display_name: Optional[str] = None
     product_known: bool = False
     product_auth_mode: Optional[str] = None
@@ -44,7 +46,8 @@ class DeviceResponse(BaseModel):
 
 class DeviceListSummary(BaseModel):
     total: int = 0
-    authorized: int = 0
+    online: int = 0
+    banned: int = 0
     unauthorized: int = 0
 
 
@@ -53,6 +56,7 @@ class ProductOptionResponse(BaseModel):
     software_name: str = ""
     display_name: str
     is_active: bool = True
+    plan: Optional[str] = None
 
 class EncryptedResponse(BaseModel):
     """加密的响应数据"""

@@ -21,8 +21,14 @@ import { baseSdk } from "./sdkMeta";
 const SECONDS_PER_MINUTE = 60;
 const SECONDS_PER_HOUR = 3600;
 const SECONDS_PER_DAY = 86400;
-const HEARTBEAT_TIMEOUT_MS = 2_000;
+const DEFAULT_HEARTBEAT_TIMEOUT_MS = 3_000;
+const DEFAULT_PLAN_INFO_TIMEOUT_MS = 10_000;
+const DEFAULT_PAYMENT_CONTEXT_TIMEOUT_MS = 10_000;
 const HEARTBEAT_LIGHT_TIMEOUT_MS = 4_000;
+
+function resolveTimeoutMs(value: number | undefined, fallback: number): number {
+  return value && value > 0 ? value : fallback;
+}
 
 type HeartbeatRequest = {
   device_id: string;
@@ -52,6 +58,9 @@ export class AuthClient {
   private readonly cache: AuthCache;
   private readonly stateBundleExistedBeforeInit: boolean;
   private lastPlan: string | undefined;
+  private readonly heartbeatTimeoutMs: number;
+  private readonly planInfoTimeoutMs: number;
+  private readonly paymentContextTimeoutMs: number;
 
   constructor(config: AuthClientConfig) {
     if (!config.serverUrl) throw new Error("serverUrl不能为空");
@@ -69,6 +78,12 @@ export class AuthClient {
     this.softwareVersion = config.softwareVersion ?? "0.0.0";
     this.clientSecret = secret;
     this.debug = !!config.debug;
+    this.heartbeatTimeoutMs = resolveTimeoutMs(config.heartbeatTimeoutMs, DEFAULT_HEARTBEAT_TIMEOUT_MS);
+    this.planInfoTimeoutMs = resolveTimeoutMs(config.planInfoTimeoutMs, DEFAULT_PLAN_INFO_TIMEOUT_MS);
+    this.paymentContextTimeoutMs = resolveTimeoutMs(
+      config.paymentContextTimeoutMs,
+      DEFAULT_PAYMENT_CONTEXT_TIMEOUT_MS,
+    );
 
     const cacheValidityDays = config.cacheValidityDays ?? 7;
     const checkIntervalDays = config.checkIntervalDays ?? 2;
@@ -254,7 +269,7 @@ export class AuthClient {
         ...this.deviceInfo,
         ...(Object.keys(nw).length > 0 ? { network: nw } : {}),
       };
-      return await this.postHeartbeatDeviceInfo(device_info, heartbeatTimes, HEARTBEAT_TIMEOUT_MS);
+      return await this.postHeartbeatDeviceInfo(device_info, heartbeatTimes, this.heartbeatTimeoutMs);
     } catch (e: any) {
       const msg = e?.name === "AbortError" ? "连接失败: timeout" : `连接失败: ${String(e?.message ?? e)}`;
       this.logDebug(`在线订阅请求异常: ${msg}`);
@@ -474,7 +489,7 @@ export class AuthClient {
       const { status, json } = await postJson<EncryptedEnvelope>(
         `${this.serverUrl}/api/auth/plan-info`,
         { encrypted_data: encryptData(JSON.stringify(requestData), this.clientSecret) },
-        HEARTBEAT_TIMEOUT_MS,
+        this.planInfoTimeoutMs,
       );
       if (status === 200) {
         const token = json?.encrypted_data ?? "";
@@ -496,7 +511,7 @@ export class AuthClient {
   async getPaymentContext(): Promise<PaymentContext> {
     const url = `${this.serverUrl}/api/payment/device-context?device_id=${encodeURIComponent(this.deviceId)}`;
     try {
-      const { status, json } = await getJson<Omit<PaymentContext, "success">>(url, HEARTBEAT_TIMEOUT_MS);
+      const { status, json } = await getJson<Omit<PaymentContext, "success">>(url, this.paymentContextTimeoutMs);
       if (status === 200 && json) {
         return { success: true, ...json };
       }

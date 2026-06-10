@@ -50,6 +50,8 @@ def migrate_schema() -> None:
     _migrate_legacy_auth_modes()
     ensure_default_product()
     _migrate_devices_product_key()
+    _migrate_devices_is_banned()
+    _migrate_devices_manual_plan()
 
 
 def _migrate_legacy_auth_modes() -> None:
@@ -144,6 +146,32 @@ def _migrate_devices_product_key() -> None:
         logger.info("已迁移 devices.product_key 列")
 
     _backfill_device_product_keys()
+
+
+def _migrate_devices_is_banned() -> None:
+    if "devices" not in inspect(engine).get_table_names():
+        return
+
+    cols = _column_names("devices")
+    if "is_banned" not in cols:
+        with engine.begin() as conn:
+            conn.execute(
+                text("ALTER TABLE devices ADD COLUMN is_banned BOOLEAN DEFAULT 0")
+            )
+        logger.info("已迁移 devices.is_banned 列")
+
+
+def _migrate_devices_manual_plan() -> None:
+    if "devices" not in inspect(engine).get_table_names():
+        return
+
+    cols = _column_names("devices")
+    if "manual_plan" not in cols:
+        with engine.begin() as conn:
+            conn.execute(
+                text("ALTER TABLE devices ADD COLUMN manual_plan VARCHAR(64)")
+            )
+        logger.info("已迁移 devices.manual_plan 列")
 
 
 def _backfill_device_product_keys() -> None:

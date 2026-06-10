@@ -19,7 +19,9 @@ from .state_bundle import BUNDLE_PRODUCT_DEVICE_INFO_SNAPSHOT_KEY, BUNDLE_PRODUC
 _SECONDS_PER_MINUTE = 60
 _SECONDS_PER_HOUR = 3600
 _SECONDS_PER_DAY = 86400
-_DEFAULT_HEARTBEAT_TIMEOUT_SEC = (0.9, 0.9)
+_DEFAULT_HEARTBEAT_TIMEOUT_SEC = (3.0, 3.0)
+_DEFAULT_PLAN_INFO_TIMEOUT_SEC = (5.0, 10.0)
+_DEFAULT_PAYMENT_CONTEXT_TIMEOUT_SEC = (5.0, 10.0)
 _ONLINE_CHECK_WALL_DEADLINE_SEC = 1.75
 _ONLINE_CHECK_WALL_MIN_WHEN_DEVICE_INFO_DEFERRED_SEC = 12.0
 _ONLINE_CHECK_FAST_WALL_SEC = 4.0
@@ -34,6 +36,17 @@ def _online_check_wall_deadline_sec() -> float:
         except ValueError:
             pass
     return _ONLINE_CHECK_WALL_DEADLINE_SEC
+
+def _resolve_requests_timeout(value: Any, default: Any) -> Any:
+    if value is None:
+        return default
+    if isinstance(value, (int, float)):
+        v = float(value)
+        return (v, v)
+    if isinstance(value, (tuple, list)) and len(value) == 2:
+        return (float(value[0]), float(value[1]))
+    return default
+
 
 def _online_check_effective_wall_sec(device_info_deferred: bool) -> float:
     base = _online_check_wall_deadline_sec()
@@ -284,8 +297,11 @@ class AuthCache:
 
 class AuthClient:
 
-    def __init__(self, server_url: str, software_name: str, device_id: Optional[str]=None, device_info: Optional[Dict[str, Any]]=None, client_secret: Optional[str]=None, cache_validity_days: int=7, check_interval_days: int=2, debug: bool=False, software_version: Optional[str]='0.0.0'):
+    def __init__(self, server_url: str, software_name: str, device_id: Optional[str]=None, device_info: Optional[Dict[str, Any]]=None, client_secret: Optional[str]=None, cache_validity_days: int=7, check_interval_days: int=2, debug: bool=False, software_version: Optional[str]='0.0.0', heartbeat_timeout_sec: Any=None, plan_info_timeout_sec: Any=None, payment_context_timeout_sec: Any=None):
         self.debug = debug
+        self._heartbeat_timeout_sec = _resolve_requests_timeout(heartbeat_timeout_sec, _DEFAULT_HEARTBEAT_TIMEOUT_SEC)
+        self._plan_info_timeout_sec = _resolve_requests_timeout(plan_info_timeout_sec, _DEFAULT_PLAN_INFO_TIMEOUT_SEC)
+        self._payment_context_timeout_sec = _resolve_requests_timeout(payment_context_timeout_sec, _DEFAULT_PAYMENT_CONTEXT_TIMEOUT_SEC)
         self.logger = logging.getLogger('py_auth_client')
         if debug:
             if not self.logger.handlers:
@@ -442,7 +458,7 @@ class AuthClient:
             response = requests.post(
                 f'{self.server_url}/api/auth/heartbeat',
                 json={'encrypted_data': self._encrypt_data(request_data)},
-                timeout=_DEFAULT_HEARTBEAT_TIMEOUT_SEC,
+                timeout=self._heartbeat_timeout_sec,
             )
             if response.status_code == 200:
                 decrypted = self._decrypt_data(response.json().get('encrypted_data', ''))
@@ -728,7 +744,7 @@ class AuthClient:
             response = requests.post(
                 f'{self.server_url}/api/auth/plan-info',
                 json={'encrypted_data': self._encrypt_data(request_data)},
-                timeout=_DEFAULT_HEARTBEAT_TIMEOUT_SEC,
+                timeout=self._plan_info_timeout_sec,
             )
             if response.status_code == 200:
                 decrypted = self._decrypt_data(response.json().get('encrypted_data', ''))
@@ -750,7 +766,7 @@ class AuthClient:
             response = requests.get(
                 f'{self.server_url}/api/payment/device-context',
                 params={'device_id': self.device_id},
-                timeout=_DEFAULT_HEARTBEAT_TIMEOUT_SEC,
+                timeout=self._payment_context_timeout_sec,
             )
             if response.status_code == 200:
                 data = response.json()
@@ -819,6 +835,15 @@ class AuthorizationError(Exception):
         check_message = self.result.get('message', '').lower() if self.result else ''
         network_keywords = ['连接失败', '连接', 'network', 'timeout', 'connection']
         return any((keyword in check_message or keyword in message_lower for keyword in network_keywords))
+
+    @property
+    def is_timeout(self) -> bool:
+        check_message = self.result.get('message', '') if self.result else ''
+        for msg in (self.message, check_message):
+            lower = msg.lower()
+            if 'timeout' in lower or '超时' in msg or 'deadline exceeded' in lower or 'context deadline' in lower:
+                return True
+        return False
 
     @property
     def is_unauthorized(self) -> bool:

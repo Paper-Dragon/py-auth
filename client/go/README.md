@@ -27,6 +27,11 @@ go get github.com/Paper-Dragon/py-auth/client/go
 | `CacheValidityDays` | 可选 | 默认 `7`，建议传正整数；`0` 使用默认值 |
 | `CheckIntervalDays` | 可选 | 默认 `2`，建议传正整数；`0` 使用默认值 |
 | `Debug` | 可选 | 是否输出调试日志 |
+| `HeartbeatTimeout` | 可选 | 心跳 `POST /api/auth/heartbeat` 总超时；`0` 为默认 `3s` |
+| `PlanInfoTimeout` | 可选 | 套餐查询 `POST /api/auth/plan-info` 总超时；`0` 为默认 `10s` |
+| `PaymentContextTimeout` | 可选 | 付费上下文 `GET /api/payment/device-context` 总超时；`0` 为默认 `10s` |
+
+弱网或跨洋 HTTPS 时，可为 `PlanInfoTimeout` / `PaymentContextTimeout` 适当加大（如 `15 * time.Second`），心跳保持较短以免阻塞启动。
 
 ## 示例
 
@@ -104,7 +109,10 @@ cache := c.GetCacheInfo()
 ```go
 plan := c.GetPlanInfo()
 if plan != nil && plan.Success {
-	fmt.Println(plan.PlanLabel, plan.Price)
+	fmt.Println(plan.Plan, plan.Price)
+	if plan.PlanDetail != "" {
+		fmt.Println(plan.PlanDetail)
+	}
 }
 
 ctx := c.GetPaymentContext()
@@ -113,7 +121,7 @@ if ctx != nil && ctx.Success {
 }
 ```
 
-心跳成功时 `CheckAuthorization` 返回的 `Plan` 字段表示当前生效套餐。
+`GetPlanInfo()` 返回产品套餐配置（档位、价格、详情等），不表示本机是否已付款。心跳返回的 `Authorized` 表示能否上线；`Plan` 表示当前生效档位。
 
 ### 清除本地缓存
 

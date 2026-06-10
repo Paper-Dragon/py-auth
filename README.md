@@ -149,6 +149,7 @@ python main.py
 ### 客户端
 
 - `POST /api/auth/heartbeat`：设备心跳与授权校验（加密请求）
+- `POST /api/auth/plan-info`：查询产品套餐信息（加密请求）
 
 ### 公开支付
 

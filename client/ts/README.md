@@ -29,6 +29,9 @@ npm i py-auth-client
 | `cacheValidityDays` | 可选 | 本地缓存有效期，默认 `7` |
 | `checkIntervalDays` | 可选 | 检查间隔，默认 `2` |
 | `debug` | 可选 | 是否输出调试日志 |
+| `heartbeatTimeoutMs` | 可选 | 心跳超时（毫秒）；默认 `3000` |
+| `planInfoTimeoutMs` | 可选 | 套餐查询超时；默认 `10000` |
+| `paymentContextTimeoutMs` | 可选 | 付费上下文查询超时；默认 `10000` |
 
 ## 示例
 
@@ -103,7 +106,8 @@ const cache = client.getCacheInfo();
 ```ts
 const plan = await client.getPlanInfo();
 if (plan.success) {
-  console.log(plan.plan_label, plan.price);
+  console.log(plan.plan, plan.price);
+  if (plan.plan_detail) console.log(plan.plan_detail);
 }
 
 const ctx = await client.getPaymentContext();
@@ -112,7 +116,7 @@ if (ctx.success) {
 }
 ```
 
-心跳成功时 `checkAuthorization()` 返回的 `plan` 字段表示当前生效套餐。
+`getPlanInfo()` 返回产品套餐配置（档位、价格、详情等），不表示本机是否已付款。心跳返回的 `authorized` 表示能否上线；`plan` 表示当前生效档位。
 
 ### 清除本地缓存
 

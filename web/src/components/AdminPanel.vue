@@ -4,21 +4,28 @@
       
       <div class="stats">
         <div class="stat-card">
-          <div class="stat-icon total"><el-icon :size="24"><Box /></el-icon></div>
+          <div class="stat-icon primary"><el-icon :size="22"><Box /></el-icon></div>
           <div class="stat-info">
             <span class="stat-value">{{ total }}</span>
             <span class="stat-label">总设备</span>
           </div>
         </div>
         <div class="stat-card">
-          <div class="stat-icon success"><el-icon :size="24"><CircleCheck /></el-icon></div>
+          <div class="stat-icon success"><el-icon :size="22"><CircleCheck /></el-icon></div>
           <div class="stat-info">
-            <span class="stat-value">{{ authorizedCount }}</span>
-            <span class="stat-label">已授权</span>
+            <span class="stat-value">{{ onlineCount }}</span>
+            <span class="stat-label">可上线</span>
           </div>
         </div>
         <div class="stat-card">
-          <div class="stat-icon danger"><el-icon :size="24"><CircleClose /></el-icon></div>
+          <div class="stat-icon warning"><el-icon :size="22"><Warning /></el-icon></div>
+          <div class="stat-info">
+            <span class="stat-value">{{ bannedCount }}</span>
+            <span class="stat-label">已封禁</span>
+          </div>
+        </div>
+        <div class="stat-card">
+          <div class="stat-icon danger"><el-icon :size="22"><CircleClose /></el-icon></div>
           <div class="stat-info">
             <span class="stat-value">{{ unauthorizedCount }}</span>
             <span class="stat-label">未授权</span>
@@ -26,7 +33,6 @@
         </div>
       </div>
 
-      
       <div class="device-section">
         <div class="section-header">
           <h2>设备列表</h2>
@@ -56,9 +62,10 @@
             />
           </el-select>
           <el-select v-model="filterAuthStatus" style="width: 120px" @change="applyFilters">
-            <el-option label="全部授权" value="" />
-            <el-option label="已授权" value="authorized" />
+            <el-option label="全部状态" value="" />
+            <el-option label="可上线" value="online" />
             <el-option label="未授权" value="unauthorized" />
+            <el-option label="已封禁" value="banned" />
           </el-select>
           <el-input
             v-model="filterKeyword"
@@ -106,13 +113,15 @@
               </div>
             </template>
           </el-table-column>
-          <el-table-column prop="plan" label="授权档位" min-width="124" align="center">
+          <el-table-column prop="plan" label="套餐信息" min-width="124" align="center">
             <template #default="{ row }">
-              <div v-if="row.plan_label" class="plan-cell">
-                <el-tag :type="row.plan_tag || 'info'" size="small">{{ row.plan_label }}</el-tag>
-                <span v-if="row.plan_hint" class="plan-hint-text">{{ row.plan_hint }}</span>
-              </div>
-              <span v-else class="text-muted">—</span>
+              <span class="clickable-tag" title="点击设置套餐" @click="setManualPlan(row)">
+                <span v-if="row.plan_label" class="plan-cell">
+                  <el-tag :type="row.plan_tag || 'info'" size="small">{{ row.plan_label }}</el-tag>
+                  <span v-if="row.plan_hint" class="plan-hint-text">{{ row.plan_hint }}</span>
+                </span>
+                <span v-else class="text-muted">—</span>
+              </span>
             </template>
           </el-table-column>
           <el-table-column prop="device_info" label="设备信息" min-width="72" align="center">
@@ -129,10 +138,30 @@
           <el-table-column prop="is_authorized" label="授权状态" min-width="84" align="center">
             <template #default="{ row }">
               <el-tooltip :content="row.auth_message" placement="top" :disabled="!row.auth_message">
-                <el-tag :type="row.is_authorized ? 'success' : 'danger'" size="small">
-                  {{ row.is_authorized ? '已授权' : '未授权' }}
+                <el-tag :type="authStatusType(row)" size="small">
+                  {{ authStatusLabel(row) }}
                 </el-tag>
               </el-tooltip>
+            </template>
+          </el-table-column>
+          <el-table-column prop="is_banned" label="封禁状态" min-width="84" align="center">
+            <template #default="{ row }">
+              <el-popconfirm
+                :title="row.is_banned
+                  ? '确定解封该设备？解封且仍满足授权规则后即可恢复上线。'
+                  : '确定封禁该设备？封禁后即使已授权 / 已付款也无法上线。'"
+                :confirm-button-text="row.is_banned ? '解封' : '封禁'"
+                cancel-button-text="取消"
+                confirm-button-type="warning"
+                width="260"
+                @confirm="toggleBan(row, !row.is_banned)"
+              >
+                <template #reference>
+                  <el-tag :type="banStatusType(row)" size="small" class="clickable-tag">
+                    {{ banStatusLabel(row) }}
+                  </el-tag>
+                </template>
+              </el-popconfirm>
             </template>
           </el-table-column>
           <el-table-column prop="created_at" min-width="112" sortable="custom" show-overflow-tooltip>
@@ -159,18 +188,43 @@
             </template>
             <template #default="{ row }">{{ formatDate(row.last_check) }}</template>
           </el-table-column>
-          <el-table-column label="操作" min-width="132" align="center" class-name="op-cell">
+          <el-table-column label="操作" min-width="120" align="center" class-name="op-cell">
             <template #default="{ row }">
               <div class="op-btns">
-                <el-button v-if="row.is_authorized" type="warning" size="small" @click="toggleAuth(row, false)" :loading="row._updating">封禁</el-button>
-                <el-button v-else type="success" size="small" @click="toggleAuth(row, true)" :loading="row._updating">解封</el-button>
-                <el-button type="danger" size="small" @click="deleteDevice(row)" :loading="row._updating">删除</el-button>
+                <el-button
+                  v-if="needsManualApprove(row)"
+                  type="primary"
+                  size="small"
+                  @click="toggleAuth(row, true)"
+                  :loading="row._updating"
+                >
+                  授权
+                </el-button>
+                <el-button
+                  v-else-if="canRevokeManualAuth(row)"
+                  size="small"
+                  @click="toggleAuth(row, false)"
+                  :loading="row._updating"
+                >
+                  取消授权
+                </el-button>
+                <el-popconfirm
+                  title="确定删除该设备？此操作不可恢复。"
+                  confirm-button-text="删除"
+                  cancel-button-text="取消"
+                  confirm-button-type="danger"
+                  width="220"
+                  @confirm="deleteDevice(row)"
+                >
+                  <template #reference>
+                    <el-button type="danger" size="small" :loading="row._updating">删除</el-button>
+                  </template>
+                </el-popconfirm>
               </div>
             </template>
           </el-table-column>
         </el-table>
 
-        
         <div class="mobile-list">
           <div v-if="loading" class="loading-state">
             <el-icon class="is-loading" :size="20"><Refresh /></el-icon>
@@ -193,9 +247,27 @@
                   :title="expandedDeviceIds.has(device.device_id) ? undefined : device.device_id"
                   @click="toggleDeviceId(device.device_id)"
                 >{{ expandedDeviceIds.has(device.device_id) ? device.device_id : maskDeviceId(device.device_id) }}</code>
-                <el-tag :type="device.is_authorized ? 'success' : 'danger'" size="small">
-                  {{ device.is_authorized ? '已授权' : '未授权' }}
-                </el-tag>
+                <div class="card-status-tags">
+                  <el-tag :type="authStatusType(device)" size="small">
+                    {{ authStatusLabel(device) }}
+                  </el-tag>
+                  <el-popconfirm
+                    :title="device.is_banned
+                      ? '确定解封该设备？解封且仍满足授权规则后即可恢复上线。'
+                      : '确定封禁该设备？封禁后即使已授权 / 已付款也无法上线。'"
+                    :confirm-button-text="device.is_banned ? '解封' : '封禁'"
+                    cancel-button-text="取消"
+                    confirm-button-type="warning"
+                    width="260"
+                    @confirm="toggleBan(device, !device.is_banned)"
+                  >
+                    <template #reference>
+                      <el-tag :type="banStatusType(device)" size="small" class="clickable-tag">
+                        {{ banStatusLabel(device) }}
+                      </el-tag>
+                    </template>
+                  </el-popconfirm>
+                </div>
               </div>
               <div class="card-body">
                 <div class="info-row">
@@ -210,10 +282,15 @@
                   <span class="label">授权模式：</span>
                   <span class="value">{{ authModeLabel(device.product_auth_mode) }}</span>
                 </div>
-                <div class="info-row" v-if="device.plan_label">
-                  <span class="label">授权档位：</span>
-                  <el-tag :type="device.plan_tag || 'info'" size="small">{{ device.plan_label }}</el-tag>
-                  <span v-if="device.plan_hint" class="plan-hint-text">{{ device.plan_hint }}</span>
+                <div class="info-row">
+                  <span class="label">套餐信息：</span>
+                  <span class="clickable-tag" @click="setManualPlan(device)">
+                    <template v-if="device.plan_label">
+                      <el-tag :type="device.plan_tag || 'info'" size="small">{{ device.plan_label }}</el-tag>
+                      <span v-if="device.plan_hint" class="plan-hint-text">{{ device.plan_hint }}</span>
+                    </template>
+                    <span v-else class="text-muted">—</span>
+                  </span>
                 </div>
                 <div class="info-row">
                   <span class="label">首次注册：</span>
@@ -236,15 +313,40 @@
                 </div>
               </div>
               <div class="card-footer">
-                <el-button v-if="device.is_authorized" type="warning" size="small" @click="toggleAuth(device, false)" :loading="device._updating">封禁</el-button>
-                <el-button v-else type="success" size="small" @click="toggleAuth(device, true)" :loading="device._updating">解封</el-button>
-                <el-button type="danger" size="small" @click="deleteDevice(device)" :loading="device._updating">删除</el-button>
+                <el-button
+                  v-if="needsManualApprove(device)"
+                  type="primary"
+                  size="small"
+                  @click="toggleAuth(device, true)"
+                  :loading="device._updating"
+                >
+                  授权
+                </el-button>
+                <el-button
+                  v-else-if="canRevokeManualAuth(device)"
+                  size="small"
+                  @click="toggleAuth(device, false)"
+                  :loading="device._updating"
+                >
+                  取消授权
+                </el-button>
+                <el-popconfirm
+                  title="确定删除该设备？此操作不可恢复。"
+                  confirm-button-text="删除"
+                  cancel-button-text="取消"
+                  confirm-button-type="danger"
+                  width="220"
+                  @confirm="deleteDevice(device)"
+                >
+                  <template #reference>
+                    <el-button type="danger" size="small" :loading="device._updating">删除</el-button>
+                  </template>
+                </el-popconfirm>
               </div>
             </div>
           </div>
         </div>
 
-        
         <div class="pagination">
           <el-pagination
             v-model:current-page="currentPage"
@@ -258,10 +360,39 @@
         </div>
       </div>
 
-      
       <el-dialog v-model="deviceInfoVisible" title="设备信息" width="90%" style="max-width: 640px;">
         <pre v-if="deviceInfoJsonText" class="device-info-json">{{ deviceInfoJsonText }}</pre>
         <el-empty v-else description="暂无 device_info" />
+      </el-dialog>
+
+      <el-dialog v-model="planDialogVisible" title="设置套餐" width="90%" style="max-width: 420px;">
+        <el-form label-position="top">
+          <el-form-item label="套餐档位">
+            <el-select
+              v-model="planDialogValue"
+              clearable
+              placeholder="选择套餐档位"
+              style="width: 100%"
+            >
+              <el-option
+                v-for="item in planOptions"
+                :key="item"
+                :label="item"
+                :value="item"
+              />
+            </el-select>
+          </el-form-item>
+        </el-form>
+        <el-alert
+          type="info"
+          :closable="false"
+          show-icon
+          title="清空选择并保存即清除手动套餐，恢复按付款或产品默认计算。"
+        />
+        <template #footer>
+          <el-button @click="planDialogVisible = false">取消</el-button>
+          <el-button type="primary" :loading="planDialogSaving" @click="saveManualPlan">保存</el-button>
+        </template>
       </el-dialog>
 
     </div>
@@ -270,7 +401,7 @@
 
 <script setup>
 import { ref, onMounted, onUnmounted, computed, nextTick } from 'vue'
-import { Refresh, Box, CircleCheck, CircleClose } from '@element-plus/icons-vue'
+import { Refresh, Box, CircleCheck, CircleClose, Warning } from '@element-plus/icons-vue'
 import { ElMessage, ElMessageBox } from 'element-plus'
 import { api } from '../api'
 import { reportApiError } from '../utils/errorFeedback'
@@ -334,7 +465,7 @@ const deviceInfoJsonText = ref('')
 const currentPage = ref(1)
 const pageSize = ref(50)
 const total = ref(0)
-const summary = ref({ total: 0, authorized: 0, unauthorized: 0 })
+const summary = ref({ total: 0, online: 0, banned: 0, unauthorized: 0 })
 const productOptions = ref([])
 const filterProductKey = ref('')
 const filterKeyword = ref('')
@@ -345,7 +476,8 @@ const sortOrder = ref('desc')
 let pendingDevicesReload = false
 let lastPageHiddenAt = 0
 
-const authorizedCount = computed(() => summary.value.authorized ?? 0)
+const onlineCount = computed(() => summary.value.online ?? 0)
+const bannedCount = computed(() => summary.value.banned ?? 0)
 const unauthorizedCount = computed(() => summary.value.unauthorized ?? 0)
 
 const authModeLabel = (mode) => sharedAuthModeLabel(mode, '未绑定产品')
@@ -369,7 +501,8 @@ const applyDevicesPayload = (data) => {
   total.value = Number(data?.total || 0)
   summary.value = {
     total: Number(data?.summary?.total ?? data?.total ?? 0),
-    authorized: Number(data?.summary?.authorized ?? 0),
+    online: Number(data?.summary?.online ?? 0),
+    banned: Number(data?.summary?.banned ?? 0),
     unauthorized: Number(data?.summary?.unauthorized ?? 0),
   }
   const list = Array.isArray(data?.devices) ? data.devices : []
@@ -477,6 +610,53 @@ const saveRemark = async (device) => {
   }
 }
 
+const authStatusLabel = (device) => (device.is_authorized ? '已授权' : '未授权')
+
+const authStatusType = (device) => (device.is_authorized ? 'success' : 'info')
+
+const banStatusLabel = (device) => (device.is_banned ? '已封禁' : '正常')
+
+const banStatusType = (device) => (device.is_banned ? 'danger' : 'info')
+
+const needsManualApprove = (device) => (
+  device.product_auth_mode === 'manual'
+  && !device.is_authorized
+  && !device.is_banned
+)
+
+const canRevokeManualAuth = (device) => (
+  device.product_auth_mode === 'manual'
+  && device.is_authorized
+  && !device.is_banned
+)
+
+const applyDeviceUpdate = (device, updatedDevice) => {
+  Object.assign(device, {
+    ...updatedDevice,
+    _originalRemark: updatedDevice.remark || '',
+    _remarkValue: updatedDevice.remark || '',
+  })
+}
+
+const toggleBan = async (device, banned) => {
+  if (device._updating) return
+  device._updating = true
+  try {
+    const result = await socket.sendRequest({
+      type: 'update_device',
+      device_id: device.device_id,
+      data: { is_banned: banned },
+    })
+    applyDeviceUpdate(device, result.device)
+    ElMessage.success(banned ? '已封禁' : '已解封')
+    requestDevicesReload()
+  } catch (e) {
+    reportApiError(e, '操作失败')
+  } finally {
+    device._updating = false
+  }
+}
+
 const toggleAuth = async (device, authorize) => {
   if (device._updating) return
   device._updating = true
@@ -484,18 +664,63 @@ const toggleAuth = async (device, authorize) => {
     const result = await socket.sendRequest({
       type: 'update_device',
       device_id: device.device_id,
-      data: { is_authorized: authorize }
+      data: { is_authorized: authorize },
     })
-    const updatedDevice = result.device
-    Object.assign(device, {
-      ...updatedDevice,
-      _originalRemark: updatedDevice.remark || '',
-      _remarkValue: updatedDevice.remark || ''
-    })
-    ElMessage.success(authorize ? '已解封' : '已封禁')
+    applyDeviceUpdate(device, result.device)
+    ElMessage.success(authorize ? '已授权' : '已取消授权')
+    requestDevicesReload()
   } catch (e) {
     reportApiError(e, '操作失败')
   } finally {
+    device._updating = false
+  }
+}
+
+const planOptions = computed(() => {
+  const set = new Set()
+  for (const item of productOptions.value) {
+    const plan = (item.plan || '').trim()
+    if (plan) set.add(plan)
+  }
+  return [...set].sort()
+})
+
+const planDialogVisible = ref(false)
+const planDialogSaving = ref(false)
+const planDialogValue = ref('')
+let planDialogDevice = null
+
+const setManualPlan = (device) => {
+  if (device._updating) return
+  planDialogDevice = device
+  planDialogValue.value = device.manual_plan || ''
+  planDialogVisible.value = true
+}
+
+const saveManualPlan = async () => {
+  const device = planDialogDevice
+  if (!device) return
+  const plan = (planDialogValue.value || '').trim()
+  if (plan === (device.manual_plan || '')) {
+    planDialogVisible.value = false
+    return
+  }
+  planDialogSaving.value = true
+  device._updating = true
+  try {
+    const result = await socket.sendRequest({
+      type: 'update_device',
+      device_id: device.device_id,
+      data: { manual_plan: plan },
+    })
+    applyDeviceUpdate(device, result.device)
+    ElMessage.success(plan ? '已设置手动套餐' : '已清除手动套餐')
+    planDialogVisible.value = false
+    requestDevicesReload()
+  } catch (e) {
+    reportApiError(e, '操作失败')
+  } finally {
+    planDialogSaving.value = false
     device._updating = false
   }
 }
@@ -601,7 +826,6 @@ onUnmounted(() => {
   box-sizing: border-box;
 }
 
-
 .content {
   width: 100%;
   max-width: none;
@@ -610,54 +834,12 @@ onUnmounted(() => {
   box-sizing: border-box;
 }
 
-
 .stats {
   display: grid;
-  grid-template-columns: repeat(3, 1fr);
+  grid-template-columns: repeat(4, minmax(0, 1fr));
   gap: 12px;
   margin-bottom: 16px;
 }
-
-.stat-card {
-  background: white;
-  border-radius: 10px;
-  padding: 16px;
-  display: flex;
-  align-items: center;
-  gap: 12px;
-  box-shadow: 0 2px 8px rgba(0,0,0,0.06);
-}
-
-.stat-icon {
-  width: 48px;
-  height: 48px;
-  border-radius: 10px;
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  color: white;
-}
-
-.stat-icon.total { background: linear-gradient(135deg, #667eea, #764ba2); }
-.stat-icon.success { background: linear-gradient(135deg, #56ab2f, #a8e063); }
-.stat-icon.danger { background: linear-gradient(135deg, #eb3349, #f45c43); }
-
-.stat-info {
-  display: flex;
-  flex-direction: column;
-}
-
-.stat-value {
-  font-size: 24px;
-  font-weight: 700;
-  color: #303133;
-}
-
-.stat-label {
-  font-size: 12px;
-  color: #909399;
-}
-
 
 .device-section {
   background: white;
@@ -670,19 +852,17 @@ onUnmounted(() => {
 }
 
 .device-section :deep(.device-data-table.el-table) {
-  width: 100% !important;
+  width: 100%;
 }
 
-.device-section :deep(.device-data-table .el-table__inner-wrapper),
-.device-section :deep(.device-data-table .el-table__header-wrapper),
-.device-section :deep(.device-data-table .el-table__body-wrapper),
-.device-section :deep(.device-data-table .el-table__header-wrapper table),
 .device-section :deep(.device-data-table .el-table__body-wrapper table) {
-  width: 100% !important;
+  table-layout: auto;
+  width: auto;
+  min-width: 100%;
 }
 
-.device-section :deep(.device-data-table .el-table__header-wrapper th.el-table__cell .cell),
-.device-section :deep(.device-data-table .el-table__body-wrapper td.el-table__cell .cell) {
+.device-section :deep(.device-data-table th.el-table__cell .cell),
+.device-section :deep(.device-data-table td.el-table__cell .cell) {
   white-space: nowrap;
   overflow: hidden;
   text-overflow: ellipsis;
@@ -726,7 +906,6 @@ onUnmounted(() => {
   margin: 0;
   color: #303133;
 }
-
 
 .desktop-table {
   display: block;
@@ -839,7 +1018,6 @@ onUnmounted(() => {
   justify-content: flex-end;
 }
 
-
 .mobile-list {
   display: none;
 }
@@ -894,6 +1072,18 @@ onUnmounted(() => {
   flex-shrink: 0;
 }
 
+.card-status-tags {
+  display: flex;
+  flex-shrink: 0;
+  flex-wrap: wrap;
+  justify-content: flex-end;
+  gap: 4px;
+}
+
+.clickable-tag {
+  cursor: pointer;
+}
+
 .card-body {
   display: flex;
   flex-direction: column;
@@ -932,7 +1122,6 @@ onUnmounted(() => {
   flex: 1;
 }
 
-
 @media (max-width: 768px) {
   .desktop-table {
     display: none !important;
@@ -947,23 +1136,7 @@ onUnmounted(() => {
   }
   
   .stats {
-    grid-template-columns: repeat(2, 1fr);
-  }
-  
-  .stat-card {
-    padding: 12px;
-    flex-direction: column;
-    text-align: center;
-    gap: 8px;
-  }
-  
-  .stat-icon {
-    width: 40px;
-    height: 40px;
-  }
-  
-  .stat-value {
-    font-size: 20px;
+    grid-template-columns: repeat(2, minmax(0, 1fr));
   }
 }
 
@@ -975,23 +1148,6 @@ onUnmounted(() => {
   .stats {
     grid-template-columns: 1fr;
     gap: 8px;
-  }
-  
-  .stat-card {
-    padding: 10px;
-  }
-  
-  .stat-icon {
-    width: 36px;
-    height: 36px;
-  }
-  
-  .stat-value {
-    font-size: 18px;
-  }
-  
-  .stat-label {
-    font-size: 11px;
   }
 
   .card-footer {

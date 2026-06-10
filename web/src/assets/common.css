@@ -159,6 +159,10 @@
   background: linear-gradient(135deg, var(--color-success), var(--color-success-light));
 }
 
+.stat-icon.warning {
+  background: linear-gradient(135deg, var(--color-warning), #f3d19e);
+}
+
 .stat-icon.danger {
   background: linear-gradient(135deg, #eb3349, #f45c43);
 }
