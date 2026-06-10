@@ -10,7 +10,6 @@ import (
 	"fmt"
 	"io"
 	"os"
-	"os/exec"
 	"path/filepath"
 	"runtime"
 	"strings"
@@ -82,7 +81,7 @@ func ReadStateDict(serverURL, baseDir string) (map[string]interface{}, error) {
 	m, ok := root.(map[string]interface{})
 	if !ok {
 		if runtime.GOOS == "windows" {
-			_ = exec.Command("attrib", "-H", path).Run()
+			_ = hiddenCommand("attrib", "-H", path).Run()
 		}
 		_ = os.Remove(path)
 		return nil, nil

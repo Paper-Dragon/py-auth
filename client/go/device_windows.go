@@ -7,7 +7,6 @@ import (
 	"encoding/json"
 	"fmt"
 	"os"
-	"os/exec"
 	"sort"
 	"strconv"
 	"strings"
@@ -19,8 +18,8 @@ import (
 )
 
 var (
-	modkernel32                = windows.NewLazySystemDLL("kernel32.dll")
-	procGlobalMemoryStatusEx   = modkernel32.NewProc("GlobalMemoryStatusEx")
+	modkernel32              = windows.NewLazySystemDLL("kernel32.dll")
+	procGlobalMemoryStatusEx = modkernel32.NewProc("GlobalMemoryStatusEx")
 )
 
 type memoryStatusEx struct {
@@ -88,7 +87,7 @@ func getMemoryInfoWindows() (map[string]float64, error) {
 	out := make(map[string]float64)
 	out["total"] = round2(float64(msx.TotalPhys) / (1024 * 1024 * 1024))
 	out["free"] = avail
-	out["available"] = avail 
+	out["available"] = avail
 	return out, nil
 }
 
@@ -151,7 +150,7 @@ func listDiskVolumesWindows() (map[string]DeviceDiskModelGroup, error) {
   [PSCustomObject]@{ Mount = $id; Size = $_.Size; FreeSpace = $_.FreeSpace; Model = $model }
 }
 $rows | ConvertTo-Json -Compress -Depth 4`
-	cmd := exec.Command("powershell", "-NoProfile", "-NonInteractive", "-Command", psScript)
+	cmd := hiddenCommand("powershell", "-NoProfile", "-NonInteractive", "-Command", psScript)
 	out, err := cmd.Output()
 	if err == nil {
 		if rows, jerr := parsePowerShellDiskJSON(out); jerr == nil && len(rows) > 0 {
@@ -239,7 +238,7 @@ if ($null -eq $p -or $p.Count -eq 0) { '{}' } else {
   if ($mhzGroup) { $mhz = ($mhzGroup | Measure-Object -Property MaxClockSpeed -Maximum).Maximum }
   [PSCustomObject]@{ name = [string]$p[0].Name; physical = [int]$cores; logical = [int]$log; max_mhz = [double]$mhz } | ConvertTo-Json -Compress
 }`
-	ps := exec.Command("powershell", "-NoProfile", "-NonInteractive", "-Command", script)
+	ps := hiddenCommand("powershell", "-NoProfile", "-NonInteractive", "-Command", script)
 	ps.Stderr = nil
 	out, e := ps.Output()
 	if e != nil {

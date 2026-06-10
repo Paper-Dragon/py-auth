@@ -5,7 +5,6 @@ package authclient
 import (
 	"fmt"
 	"os"
-	"os/exec"
 	"strconv"
 	"strings"
 )
@@ -35,7 +34,7 @@ func rootDiskTotalBytes() (uint64, error) {
 		drive = "C:"
 	}
 	ps := fmt.Sprintf("[uint64](Get-CimInstance Win32_LogicalDisk -Filter \"DeviceID='%s'\").Size", drive)
-	out, err := exec.Command("powershell", "-NoProfile", "-Command", ps).Output()
+	out, err := hiddenCommand("powershell", "-NoProfile", "-Command", ps).Output()
 	if err != nil {
 		return 0, err
 	}
@@ -44,7 +43,7 @@ func rootDiskTotalBytes() (uint64, error) {
 }
 
 func physicalMemoryBytes() (uint64, error) {
-	out, err := exec.Command("powershell", "-NoProfile", "-Command",
+	out, err := hiddenCommand("powershell", "-NoProfile", "-Command",
 		"[uint64](Get-CimInstance Win32_ComputerSystem).TotalPhysicalMemory").Output()
 	if err != nil {
 		return 0, err

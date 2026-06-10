@@ -6,7 +6,6 @@ import (
 	"fmt"
 	"math"
 	"os"
-	"os/exec"
 	"os/user"
 	"runtime"
 	"sort"
@@ -18,16 +17,16 @@ import (
 )
 
 type DeviceFacts struct {
-	System    string
-	Release   string
-	Version   string
-	Machine   string
-	Processor string
-	Hostname  string
-	MAC       string
-	IPAddress string
-	CPUCount  int
-	DiskID    string
+	System        string
+	Release       string
+	Version       string
+	Machine       string
+	Processor     string
+	Hostname      string
+	MAC           string
+	IPAddress     string
+	CPUCount      int
+	DiskID        string
 	MemoryTotalGB float64
 	DiskTotalGB   float64
 }
@@ -45,10 +44,10 @@ type DeviceNetworkEndpoint struct {
 }
 
 type DeviceNetwork struct {
-	MACAddress string                   `json:"mac_address,omitempty"`
-	IPAddress  string                   `json:"ip_address,omitempty"`
-	Interfaces []DeviceNetworkEndpoint   `json:"interfaces,omitempty"`
-	PublicIP   string                   `json:"public_ip,omitempty"`
+	MACAddress string                  `json:"mac_address,omitempty"`
+	IPAddress  string                  `json:"ip_address,omitempty"`
+	Interfaces []DeviceNetworkEndpoint `json:"interfaces,omitempty"`
+	PublicIP   string                  `json:"public_ip,omitempty"`
 }
 
 type DeviceMemory struct {
@@ -58,12 +57,12 @@ type DeviceMemory struct {
 }
 
 type DeviceCPU struct {
-	Model          string  `json:"model,omitempty"`
-	Count          int     `json:"count,omitempty"`
-	PhysicalCount  int     `json:"physical_count,omitempty"`
-	FreqMHz        float64 `json:"freq_mhz,omitempty"`
-	FreqMinMHz     float64 `json:"freq_min_mhz,omitempty"`
-	FreqMaxMHz     float64 `json:"freq_max_mhz,omitempty"`
+	Model         string  `json:"model,omitempty"`
+	Count         int     `json:"count,omitempty"`
+	PhysicalCount int     `json:"physical_count,omitempty"`
+	FreqMHz       float64 `json:"freq_mhz,omitempty"`
+	FreqMinMHz    float64 `json:"freq_min_mhz,omitempty"`
+	FreqMaxMHz    float64 `json:"freq_max_mhz,omitempty"`
 }
 
 type DeviceDiskVolume struct {
@@ -149,7 +148,7 @@ func PersistDeviceID(serverURL, deviceID, softwareName, baseDir string) error {
 	if err := WriteStateDict(serverURL, baseDir, m); err != nil {
 		if runtime.GOOS == "windows" {
 			if _, statErr := os.Stat(path); statErr == nil {
-				_ = exec.Command("attrib", "-H", path).Run()
+				_ = hiddenCommand("attrib", "-H", path).Run()
 				_ = os.Remove(path)
 				return WriteStateDict(serverURL, baseDir, m)
 			}
@@ -161,7 +160,7 @@ func PersistDeviceID(serverURL, deviceID, softwareName, baseDir string) error {
 
 func getMACAddressLegacy() string {
 	if runtime.GOOS == "windows" {
-		cmd := exec.Command("getmac", "/fo", "csv", "/nh")
+		cmd := hiddenCommand("getmac", "/fo", "csv", "/nh")
 		output, err := cmd.Output()
 		if err == nil {
 			lines := strings.Split(string(output), "\n")
@@ -177,7 +176,7 @@ func getMACAddressLegacy() string {
 			}
 		}
 	} else if runtime.GOOS == "darwin" || runtime.GOOS == "linux" {
-		cmd := exec.Command("ifconfig")
+		cmd := hiddenCommand("ifconfig")
 		output, err := cmd.Output()
 		if err == nil {
 			lines := strings.Split(string(output), "\n")
@@ -655,23 +654,23 @@ func fillCPUExtendedInfo(info map[string]interface{}) {
 			info["cpu_freq_max_mhz"] = round2(maxMHz)
 		}
 	case "darwin":
-		if out, err := exec.Command("sysctl", "-n", "machdep.cpu.brand_string").Output(); err == nil {
+		if out, err := hiddenCommand("sysctl", "-n", "machdep.cpu.brand_string").Output(); err == nil {
 			if s := strings.TrimSpace(string(out)); s != "" {
 				info["cpu_model"] = s
 			}
 		}
-		if out, err := exec.Command("sysctl", "-n", "hw.physicalcpu").Output(); err == nil {
+		if out, err := hiddenCommand("sysctl", "-n", "hw.physicalcpu").Output(); err == nil {
 			var p int
 			if _, e := fmt.Sscanf(strings.TrimSpace(string(out)), "%d", &p); e == nil && p > 0 {
 				info["cpu_physical_count"] = p
 			}
 		}
 		var hz int64
-		if out, err := exec.Command("sysctl", "-n", "hw.cpufrequency_max").Output(); err == nil {
+		if out, err := hiddenCommand("sysctl", "-n", "hw.cpufrequency_max").Output(); err == nil {
 			_, _ = fmt.Sscanf(strings.TrimSpace(string(out)), "%d", &hz)
 		}
 		if hz <= 0 {
-			if out, err := exec.Command("sysctl", "-n", "hw.cpufrequency").Output(); err == nil {
+			if out, err := hiddenCommand("sysctl", "-n", "hw.cpufrequency").Output(); err == nil {
 				_, _ = fmt.Sscanf(strings.TrimSpace(string(out)), "%d", &hz)
 			}
 		}
@@ -948,7 +947,7 @@ func getSystemInfo() (release, version, processor string) {
 			version = wv
 		} else {
 			release = "Windows"
-			cmd := exec.Command("cmd", "/c", "ver")
+			cmd := hiddenCommand("cmd", "/c", "ver")
 			if output, err := cmd.Output(); err == nil {
 				version = strings.TrimSpace(string(output))
 			}
@@ -956,11 +955,11 @@ func getSystemInfo() (release, version, processor string) {
 		processor = normalizeProcessorGOARCH()
 	case "darwin":
 		release = "macOS"
-		cmd := exec.Command("sw_vers", "-productVersion")
+		cmd := hiddenCommand("sw_vers", "-productVersion")
 		if output, err := cmd.Output(); err == nil {
 			release = "macOS " + strings.TrimSpace(string(output))
 		}
-		cmd = exec.Command("uname", "-m")
+		cmd = hiddenCommand("uname", "-m")
 		if output, err := cmd.Output(); err == nil {
 			processor = strings.TrimSpace(string(output))
 		}
@@ -975,7 +974,7 @@ func getSystemInfo() (release, version, processor string) {
 				}
 			}
 		}
-		cmd := exec.Command("uname", "-m")
+		cmd := hiddenCommand("uname", "-m")
 		if output, err := cmd.Output(); err == nil {
 			processor = strings.TrimSpace(string(output))
 		}
@@ -1010,7 +1009,7 @@ func getCPUInfo() (string, error) {
 		}
 	}
 	if runtime.GOOS == "darwin" {
-		cmd := exec.Command("sysctl", "-n", "machdep.cpu.brand_string")
+		cmd := hiddenCommand("sysctl", "-n", "machdep.cpu.brand_string")
 		if output, err := cmd.Output(); err == nil {
 			s := strings.TrimSpace(string(output))
 			if s != "" {
@@ -1075,7 +1074,7 @@ func getMemoryInfo() (map[string]float64, error) {
 			}
 		}
 	}
-	
+
 	return result, fmt.Errorf("memory info not available")
 }
 
@@ -1094,6 +1093,6 @@ func getSystemUptime() (int64, error) {
 			}
 		}
 	}
-	
+
 	return 0, fmt.Errorf("uptime not available")
 }

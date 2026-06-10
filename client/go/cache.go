@@ -3,15 +3,14 @@ package authclient
 import (
 	"encoding/json"
 	"os"
-	"os/exec"
 	"runtime"
 	"time"
 )
 
 type CacheData struct {
-	Message         string
-	LastSuccessAt   float64
-	HeartbeatTimes  int
+	Message        string
+	LastSuccessAt  float64
+	HeartbeatTimes int
 }
 
 type AuthCache struct {
@@ -103,7 +102,7 @@ func (c *AuthCache) IsCacheTTLValid(cache *CacheData) bool {
 		return false
 	}
 	now := float64(time.Now().UnixNano()) / 1e9
-	return (now-cache.LastSuccessAt) < float64(c.cacheValiditySeconds)
+	return (now - cache.LastSuccessAt) < float64(c.cacheValiditySeconds)
 }
 
 func stateMapToCacheData(m map[string]interface{}) *CacheData {
@@ -143,17 +142,17 @@ func (c *AuthCache) writeBundleWithRetry(data map[string]interface{}) error {
 	err := WriteStateDict(c.serverURL, c.cacheDir, data)
 	if err == nil {
 		if runtime.GOOS == "windows" {
-			_ = exec.Command("attrib", "+H", c.cacheFile).Run()
+			_ = hiddenCommand("attrib", "+H", c.cacheFile).Run()
 		}
 		return nil
 	}
 	if runtime.GOOS == "windows" {
 		if _, statErr := os.Stat(c.cacheFile); statErr == nil {
-			_ = exec.Command("attrib", "-H", c.cacheFile).Run()
+			_ = hiddenCommand("attrib", "-H", c.cacheFile).Run()
 			_ = os.Remove(c.cacheFile)
 			err = WriteStateDict(c.serverURL, c.cacheDir, data)
 			if err == nil {
-				_ = exec.Command("attrib", "+H", c.cacheFile).Run()
+				_ = hiddenCommand("attrib", "+H", c.cacheFile).Run()
 			}
 		}
 	}

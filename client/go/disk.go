@@ -5,7 +5,6 @@ package authclient
 import (
 	"fmt"
 	"os"
-	"os/exec"
 	"runtime"
 	"strconv"
 	"strings"
@@ -40,7 +39,7 @@ func rootDiskID() string {
 		}
 		return "/"
 	case "darwin":
-		out, err := exec.Command("df", "/").Output()
+		out, err := hiddenCommand("df", "/").Output()
 		if err != nil {
 			return "/"
 		}
@@ -79,7 +78,7 @@ func linuxDiskModel(dev string) string {
 	if dev == "" || !strings.HasPrefix(dev, "/dev/") {
 		return ""
 	}
-	out, err := exec.Command("lsblk", "-no", "MODEL", dev).Output()
+	out, err := hiddenCommand("lsblk", "-no", "MODEL", dev).Output()
 	if err != nil {
 		return ""
 	}
@@ -87,7 +86,7 @@ func linuxDiskModel(dev string) string {
 }
 
 func darwinDiskModel(mount string) string {
-	out, err := exec.Command("diskutil", "info", mount).Output()
+	out, err := hiddenCommand("diskutil", "info", mount).Output()
 	if err != nil {
 		return ""
 	}
@@ -168,7 +167,7 @@ func listDiskVolumesLinux() (map[string]DeviceDiskModelGroup, error) {
 }
 
 func listDiskVolumesDarwin() (map[string]DeviceDiskModelGroup, error) {
-	out, err := exec.Command("df", "-l", "-P", "-k").Output()
+	out, err := hiddenCommand("df", "-l", "-P", "-k").Output()
 	if err != nil {
 		return nil, err
 	}
@@ -256,7 +255,7 @@ func physicalMemoryBytes() (uint64, error) {
 		}
 		return 0, os.ErrNotExist
 	case "darwin":
-		out, err := exec.Command("sysctl", "-n", "hw.memsize").Output()
+		out, err := hiddenCommand("sysctl", "-n", "hw.memsize").Output()
 		if err != nil {
 			return 0, err
 		}
