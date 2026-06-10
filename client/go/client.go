@@ -64,7 +64,6 @@ type PlanInfo struct {
 	SoftwareName string `json:"software_name,omitempty"`
 	AuthMode     string `json:"auth_mode,omitempty"`
 	Plan         string `json:"plan,omitempty"`
-	PlanLabel    string `json:"plan_label,omitempty"`
 	PlanDetail   string `json:"plan_detail,omitempty"`
 	Price        string `json:"price,omitempty"`
 	PayType      string `json:"pay_type,omitempty"`
@@ -79,7 +78,6 @@ type PaymentContext struct {
 	DisplayName  string `json:"display_name,omitempty"`
 	AuthMode     string `json:"auth_mode,omitempty"`
 	Plan         string `json:"plan,omitempty"`
-	PlanLabel    string `json:"plan_label,omitempty"`
 	PlanDetail   string `json:"plan_detail,omitempty"`
 	Price        string `json:"price,omitempty"`
 	PayType      string `json:"pay_type,omitempty"`

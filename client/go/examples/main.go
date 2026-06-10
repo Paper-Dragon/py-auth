@@ -40,10 +40,7 @@ func buildPayURL(client *authclient.AuthClient, autoPay bool) string {
 
 func guidePayment(client *authclient.AuthClient) {
 	if planInfo := client.GetPlanInfo(); planInfo != nil && planInfo.Success {
-		label := planInfo.PlanLabel
-		if label == "" {
-			label = planInfo.Plan
-		}
+		label := planInfo.Plan
 		if label == "" {
 			label = "未知套餐"
 		}

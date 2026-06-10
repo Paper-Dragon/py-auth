@@ -30,7 +30,7 @@ def _guide_payment(client: AuthClient) -> None:
     """未授权时引导用户去支付页，付款后强制在线复查授权。"""
     plan_info = client.get_plan_info()
     if plan_info.get("success"):
-        label = plan_info.get("plan_label") or plan_info.get("plan") or "未知套餐"
+        label = plan_info.get("plan") or "未知套餐"
         price = plan_info.get("price")
         detail = plan_info.get("plan_detail")
         if price:

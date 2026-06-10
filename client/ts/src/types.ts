@@ -108,7 +108,6 @@ export interface PlanInfo {
   software_name?: string;
   auth_mode?: string;
   plan?: string;
-  plan_label?: string;
   plan_detail?: string;
   price?: string;
   pay_type?: string;
@@ -123,7 +122,6 @@ export interface PaymentContext {
   display_name?: string;
   auth_mode?: string;
   plan?: string;
-  plan_label?: string;
   plan_detail?: string;
   price?: string;
   pay_type?: string;

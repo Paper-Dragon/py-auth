@@ -43,7 +43,7 @@ function buildPayUrl(client: AuthClient, autoPay = true): string {
 async function guidePayment(client: AuthClient): Promise<void> {
   const planInfo = await client.getPlanInfo();
   if (planInfo.success) {
-    const label = planInfo.plan_label || planInfo.plan || "未知套餐";
+    const label = planInfo.plan || "未知套餐";
     if (planInfo.price) {
       console.log(`当前套餐：${label}，价格：¥${planInfo.price}`);
     } else {

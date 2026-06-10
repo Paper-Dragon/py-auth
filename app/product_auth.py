@@ -211,7 +211,6 @@ def build_product_plan_info(db: Session, product: Product) -> dict[str, Any]:
         "software_name": software_name_for_product(product) or None,
         "auth_mode": product.auth_mode,
         "plan": plan,
-        "plan_label": format_plan_name(plan),
         "plan_detail": plan_detail,
         "can_pay": False,
     }

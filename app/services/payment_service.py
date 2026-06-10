@@ -110,7 +110,6 @@ def _plan_fields_from_product(db: Session, product: Product) -> dict:
         "display_name": plan_info.get("display_name"),
         "auth_mode": plan_info.get("auth_mode"),
         "plan": plan_info.get("plan"),
-        "plan_label": plan_info.get("plan_label"),
         "plan_detail": plan_info.get("plan_detail"),
         "price": plan_info.get("price"),
         "pay_type": plan_info.get("pay_type"),
