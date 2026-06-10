@@ -13,7 +13,6 @@
             </el-button>
           </div>
         </div>
-
         <el-table
           :data="users"
           v-loading="loading"
@@ -52,7 +51,6 @@
             </template>
           </el-table-column>
         </el-table>
-
         
         <el-dialog v-model="dialogVisible" :title="dialogTitle" width="90%" style="max-width: 450px;" @close="resetForm">
           <el-form :model="form" :rules="rules" ref="formRef" label-width="80px">
@@ -78,7 +76,6 @@
     </main>
   </div>
 </template>
-
 <script setup>
 import { ref, onMounted, computed, nextTick } from 'vue'
 import { api } from '../api'
@@ -97,21 +94,17 @@ const form = ref({
   is_admin: false,
   is_active: true
 })
-
 const rules = {
   username: [{ required: true, message: '请输入用户名', trigger: 'blur' }],
   password: [{ required: true, message: '请输入密码', trigger: 'blur' }],
   password_optional: []
 }
-
 const isEditMode = computed(() => !!form.value.id)
 const dialogTitle = computed(() => (isEditMode.value ? '编辑用户' : '新建用户'))
-
 const formatTime = (value) => {
   if (!value) return '-'
   return new Date(value).toLocaleString()
 }
-
 const fetchUsers = async () => {
   loading.value = true
   try {
@@ -124,11 +117,9 @@ const fetchUsers = async () => {
     loading.value = false
   }
 }
-
 const isCurrentUser = (user) => {
   return currentUser.value && currentUser.value.id === user.id
 }
-
 const resetForm = () => {
   form.value = {
     id: null,
@@ -141,12 +132,10 @@ const resetForm = () => {
     formRef.value.resetFields()
   }
 }
-
 const openCreateDialog = () => {
   resetForm()
   dialogVisible.value = true
 }
-
 const openEditDialog = (user) => {
   resetForm()
   dialogVisible.value = true
@@ -154,7 +143,6 @@ const openEditDialog = (user) => {
     form.value = { ...user, password: '' }
   })
 }
-
 const handleSubmit = async () => {
   if (!formRef.value) return
   await formRef.value.validate(async (valid) => {
@@ -180,7 +168,6 @@ const handleSubmit = async () => {
     }
   })
 }
-
 const handleDelete = async (userId) => {
   try {
     await api.deleteUser(userId)
@@ -190,14 +177,11 @@ const handleDelete = async (userId) => {
     if (reportApiError(error, '删除失败')) return
   }
 }
-
 onMounted(fetchUsers)
 </script>
-
 <style scoped>
 .el-button--link {
   padding-left: 6px;
   padding-right: 6px;
 }
-
 </style>

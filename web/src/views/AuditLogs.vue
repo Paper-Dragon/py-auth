@@ -7,7 +7,6 @@
             <h2>审计日志</h2>
           </div>
         </div>
-
         <el-table
           :data="logs"
           v-loading="loading"
@@ -28,7 +27,6 @@
             <template #default="{ row }">{{ formatDetail(row.detail) }}</template>
           </el-table-column>
         </el-table>
-
         <div class="pager">
           <el-pagination
             v-model:current-page="currentPage"
@@ -44,18 +42,15 @@
     </main>
   </div>
 </template>
-
 <script setup>
 import { ref, onMounted } from 'vue'
 import { api } from '../api'
 import { reportApiError } from '../utils/errorFeedback'
-
 const logs = ref([])
 const loading = ref(false)
 const currentPage = ref(1)
 const pageSize = ref(50)
 const total = ref(0)
-
 const formatDate = (value) => {
   if (!value) return '-'
   try {
@@ -64,7 +59,6 @@ const formatDate = (value) => {
     return value
   }
 }
-
 const formatDetail = (detail) => {
   if (!detail) return '-'
   try {
@@ -73,7 +67,6 @@ const formatDetail = (detail) => {
     return String(detail)
   }
 }
-
 const fetchLogs = async () => {
   loading.value = true
   try {
@@ -86,23 +79,19 @@ const fetchLogs = async () => {
     loading.value = false
   }
 }
-
 onMounted(fetchLogs)
 </script>
-
 <style scoped>
 .header-meta h2 {
   margin: 0;
   font-size: 16px;
   color: var(--color-text-primary);
 }
-
 .header-meta p {
   margin: 2px 0 0;
   font-size: 12px;
   color: var(--color-text-tertiary);
 }
-
 .pager {
   margin-top: 16px;
   display: flex;

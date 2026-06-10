@@ -10,20 +10,16 @@
     </main>
   </div>
 </template>
-
 <script setup>
 import { ref, onMounted } from 'vue'
 import { marked } from 'marked'
 import markdownContent from '../docs/usage.md'
-
 const renderedMarkdown = ref('')
-
 onMounted(() => {
   marked.setOptions({ breaks: true, gfm: true })
   renderedMarkdown.value = marked.parse(markdownContent)
 })
 </script>
-
 <style scoped>
 .docs-header {
   margin-bottom: 20px;

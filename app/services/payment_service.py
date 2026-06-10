@@ -111,6 +111,7 @@ def _plan_fields_from_product(db: Session, product: Product) -> dict:
         "auth_mode": plan_info.get("auth_mode"),
         "plan": plan_info.get("plan"),
         "plan_label": plan_info.get("plan_label"),
+        "plan_detail": plan_info.get("plan_detail"),
         "price": plan_info.get("price"),
         "pay_type": plan_info.get("pay_type"),
     }
@@ -258,8 +259,8 @@ def sync_order_paid(
         if logger:
             logger.warning("同步易支付订单状态失败: %s", exc)
         return
-    remote_status = str(remote.get("status") or remote.get("trade_status") or "").upper()
-    if remote_status in ("TRADE_SUCCESS", "1", "PAID", "SUCCESS"):
+    remote_status = str(remote.get("status") or remote.get("trade_status") or "").strip().upper()
+    if remote_status in ("TRADE_SUCCESS", "1", "2", "PAID", "SUCCESS", "PAY_SUCCESS", "COMPLETED"):
         mark_order_paid(db, order, str(remote.get("trade_no") or ""))
         db.commit()
         db.refresh(order)

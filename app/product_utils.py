@@ -50,6 +50,14 @@ def plan_from_product(product: Product | None) -> str | None:
     return plan or "pro"
 
 
+def plan_detail_from_product(product: Product | None) -> str | None:
+    if not product:
+        return None
+    config = product.config if isinstance(product.config, dict) else {}
+    detail = str(config.get("plan_detail", "")).strip()
+    return detail or None
+
+
 def software_name_for_product(product: Product | None, *, fallback: str = "") -> str:
     if product and (product.software_name or "").strip():
         return product.software_name.strip()

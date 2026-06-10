@@ -187,6 +187,7 @@ class PaymentDeviceContextResponse(BaseModel):
     auth_mode: Optional[str] = None
     plan: Optional[str] = None
     plan_label: Optional[str] = None
+    plan_detail: Optional[str] = None
     price: Optional[str] = None
     pay_type: Optional[str] = None
     can_pay: bool = False

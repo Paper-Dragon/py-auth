@@ -26,10 +26,12 @@ router = APIRouter(prefix="/api/admin/products", tags=["产品管理"])
 
 SOFTWARE_NAME_PATTERN = re.compile(r"^.{2,64}$", re.UNICODE)
 
+PLAN_DETAIL_MAX_LEN = 2000
+
 AUTH_MODE_DEFAULT_CONFIG = {
     "open": {},
     "manual": {},
-    "paid": {"plan_on_paid": "pro", "price": "0.00", "pay_type": "wxpay"},
+    "paid": {"plan_on_paid": "pro", "price": "0.00", "pay_type": "wxpay", "plan_detail": ""},
 }
 
 
@@ -58,6 +60,16 @@ def _normalize_config(auth_mode: str, config: dict | None) -> dict:
         base["plan_on_paid"] = plan
         base["price"] = price
         base["pay_type"] = pay_type
+        detail = str(base.get("plan_detail", "")).strip()
+        if len(detail) > PLAN_DETAIL_MAX_LEN:
+            raise HTTPException(
+                status_code=400,
+                detail=f"套餐详情不能超过 {PLAN_DETAIL_MAX_LEN} 字",
+            )
+        if detail:
+            base["plan_detail"] = detail
+        else:
+            base.pop("plan_detail", None)
     return base
 
 

@@ -15,7 +15,6 @@
     </div>
   </div>
 </template>
-
 <script setup>
 import { ref, onMounted } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
@@ -24,22 +23,18 @@ import {
   clearPaymentOrderContext,
   resolvePaymentDeviceId,
 } from '../utils/paymentOrderContext'
-
 const route = useRoute()
 const router = useRouter()
-
 const success = ref(false)
 const message = ref('正在确认支付结果...')
 const outTradeNo = ref('')
 const deviceId = ref('')
 const checking = ref(false)
-
 const applyResult = (data) => {
   success.value = !!data?.success
   message.value = data?.message || (success.value ? '授权已开通' : '请稍后重试')
   outTradeNo.value = data?.out_trade_no || outTradeNo.value
 }
-
 const recheck = async () => {
   if (!outTradeNo.value) return
   deviceId.value = resolvePaymentDeviceId(route.query, outTradeNo.value)
@@ -61,11 +56,9 @@ const recheck = async () => {
     checking.value = false
   }
 }
-
 const goPay = () => {
   router.push('/pay')
 }
-
 onMounted(async () => {
   outTradeNo.value = String(route.query.out_trade_no || '')
   deviceId.value = resolvePaymentDeviceId(route.query, outTradeNo.value)
@@ -83,7 +76,6 @@ onMounted(async () => {
   }
 })
 </script>
-
 <style scoped>
 .result-page {
   min-height: 100vh;
@@ -93,7 +85,6 @@ onMounted(async () => {
   background: #f5f7fa;
   padding: 24px;
 }
-
 .result-card {
   width: 100%;
   max-width: 560px;
@@ -102,7 +93,6 @@ onMounted(async () => {
   padding: 24px;
   box-shadow: 0 8px 24px rgba(0, 0, 0, 0.06);
 }
-
 .order-no {
   margin: 0 0 12px;
   color: #606266;

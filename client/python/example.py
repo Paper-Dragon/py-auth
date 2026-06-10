@@ -32,10 +32,13 @@ def _guide_payment(client: AuthClient) -> None:
     if plan_info.get("success"):
         label = plan_info.get("plan_label") or plan_info.get("plan") or "未知套餐"
         price = plan_info.get("price")
+        detail = plan_info.get("plan_detail")
         if price:
             print(f"当前套餐：{label}，价格：¥{price}")
         else:
             print(f"当前套餐：{label}")
+        if detail:
+            print(f"套餐详情：{detail}")
 
     pay_url = _build_pay_url(client)
     print("设备未授权，请在浏览器打开以下链接完成付款：")

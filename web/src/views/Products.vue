@@ -13,7 +13,6 @@
             </el-button>
           </div>
         </div>
-
         <el-table
           :data="products"
           v-loading="loading"
@@ -87,7 +86,6 @@
             </template>
           </el-table-column>
         </el-table>
-
         <el-dialog
           v-model="dialogVisible"
           :title="dialogTitle"
@@ -144,6 +142,16 @@
                   />
                 </el-select>
               </el-form-item>
+              <el-form-item label="套餐详情" prop="plan_detail">
+                <el-input
+                  v-model="form.plan_detail"
+                  type="textarea"
+                  :rows="4"
+                  placeholder="向客户端展示的套餐说明，如功能权益、有效期等"
+                  maxlength="2000"
+                  show-word-limit
+                />
+              </el-form-item>
             </template>
             <el-form-item label="启用状态" prop="is_active">
               <el-switch v-model="form.is_active" />
@@ -158,7 +166,6 @@
     </main>
   </div>
 </template>
-
 <script setup>
 import { ref, onMounted, computed, nextTick } from 'vue'
 import { api } from '../api'
@@ -167,15 +174,12 @@ import { reportApiError } from '../utils/errorFeedback'
 import { Plus } from '@element-plus/icons-vue'
 import { PAY_CHANNELS } from '../constants/payChannels'
 import { AUTH_MODES, authModeLabel, authModeTagType } from '../constants/authModes'
-
 const authModeOptions = AUTH_MODES
-
 const enabledChannels = ref([])
 const payChannelOptions = computed(() => {
   if (!enabledChannels.value.length) return PAY_CHANNELS
   return PAY_CHANNELS.filter((item) => enabledChannels.value.includes(item.value))
 })
-
 const products = ref([])
 const expandedUuidIds = ref(new Set())
 const loading = ref(true)
@@ -190,14 +194,13 @@ const form = ref({
   plan_on_paid: 'pro',
   price: '0.00',
   pay_type: 'wxpay',
+  plan_detail: '',
   is_active: true,
   is_default: false,
   client_secret: '',
 })
-
 const uuidPattern = /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i
 const legacyKeyPattern = /^prod_[a-zA-Z0-9_-]+$/
-
 const rules = {
   software_name: [
     { required: true, message: '请输入软件名称', trigger: 'blur' },
@@ -235,23 +238,19 @@ const rules = {
   plan_on_paid: [{ required: true, message: '请填写付费档位', trigger: 'blur' }],
   price: [{ required: true, message: '请填写价格', trigger: 'blur' }],
 }
-
 const isEditMode = computed(() => !!form.value.id)
 const dialogTitle = computed(() => {
   if (form.value.is_default) return '编辑默认产品'
   return isEditMode.value ? '编辑产品' : '新建产品'
 })
-
 const productNameLabel = (row) => {
   if (row.is_default) return row.display_name || '默认产品'
   return row.software_name || row.display_name || '-'
 }
-
 const formatTime = (value) => {
   if (!value) return '-'
   return new Date(value).toLocaleString()
 }
-
 const formatConfigSummary = (row) => {
   const config = row.config || {}
   if (row.auth_mode === 'paid') {
@@ -262,7 +261,6 @@ const formatConfigSummary = (row) => {
   }
   return '-'
 }
-
 const buildConfigPayload = () => {
   const mode = form.value.auth_mode
   if (mode === 'paid') {
@@ -270,11 +268,11 @@ const buildConfigPayload = () => {
       plan_on_paid: form.value.plan_on_paid,
       price: form.value.price,
       pay_type: form.value.pay_type,
+      plan_detail: form.value.plan_detail,
     }
   }
   return {}
 }
-
 const fillFormFromProduct = (product) => {
   const config = product.config || {}
   form.value = {
@@ -287,12 +285,12 @@ const fillFormFromProduct = (product) => {
     plan_on_paid: config.plan_on_paid ?? 'pro',
     price: config.price ?? '0.00',
     pay_type: config.pay_type ?? 'wxpay',
+    plan_detail: config.plan_detail ?? '',
     is_active: product.is_active,
     is_default: !!product.is_default,
     client_secret: product.client_secret || '',
   }
 }
-
 const fetchProducts = async () => {
   loading.value = true
   try {
@@ -303,7 +301,6 @@ const fetchProducts = async () => {
     loading.value = false
   }
 }
-
 const fetchEnabledChannels = async () => {
   try {
     const data = await api.getPaymentChannels()
@@ -312,7 +309,6 @@ const fetchEnabledChannels = async () => {
     enabledChannels.value = []
   }
 }
-
 const resetForm = () => {
   form.value = {
     id: null,
@@ -322,6 +318,7 @@ const resetForm = () => {
     plan_on_paid: 'pro',
     price: '0.00',
     pay_type: 'wxpay',
+    plan_detail: '',
     is_active: true,
     is_default: false,
     client_secret: '',
@@ -330,7 +327,6 @@ const resetForm = () => {
     formRef.value.resetFields()
   }
 }
-
 const ensureValidPayType = () => {
   const options = payChannelOptions.value
   if (!options.length) return
@@ -338,7 +334,6 @@ const ensureValidPayType = () => {
     form.value.pay_type = options[0].value
   }
 }
-
 const onAuthModeChange = () => {
   if (form.value.auth_mode === 'paid') {
     if (!form.value.plan_on_paid) {
@@ -347,15 +342,12 @@ const onAuthModeChange = () => {
     ensureValidPayType()
   }
 }
-
 const createProductKey = () => crypto.randomUUID()
-
 const openCreateDialog = () => {
   resetForm()
   form.value.key = createProductKey()
   dialogVisible.value = true
 }
-
 const openEditDialog = (product) => {
   resetForm()
   dialogVisible.value = true
@@ -363,26 +355,22 @@ const openEditDialog = (product) => {
     fillFormFromProduct(product)
   })
 }
-
 const maskUuid = (uuid) => {
   const value = String(uuid || '')
   if (value.length <= 14) return value
   return `${value.slice(0, 8)}…${value.slice(-5)}`
 }
-
 const toggleUuid = (id) => {
   const next = new Set(expandedUuidIds.value)
   if (next.has(id)) next.delete(id)
   else next.add(id)
   expandedUuidIds.value = next
 }
-
 const maskSecret = (secret) => {
   const value = String(secret || '')
   if (value.length <= 10) return value
   return `${value.slice(0, 6)}…${value.slice(-4)}`
 }
-
 const copyText = async (text) => {
   try {
     await navigator.clipboard.writeText(text)
@@ -391,7 +379,6 @@ const copyText = async (text) => {
     ElMessage.error('复制失败，请手动复制')
   }
 }
-
 const handleSubmit = async () => {
   if (!formRef.value) return
   await formRef.value.validate(async (valid) => {
@@ -422,7 +409,6 @@ const handleSubmit = async () => {
     }
   })
 }
-
 const handleDelete = async (productId) => {
   try {
     await api.deleteProduct(productId)
@@ -432,43 +418,35 @@ const handleDelete = async (productId) => {
     if (reportApiError(error, '删除失败')) return
   }
 }
-
 onMounted(() => {
   fetchProducts()
   fetchEnabledChannels()
 })
 </script>
-
 <style scoped>
 .uuid-cell {
   cursor: pointer;
 }
-
 .uuid-cell:hover {
   color: var(--color-primary);
 }
-
 .secret-cell {
   display: flex;
   align-items: center;
   flex-wrap: wrap;
   gap: 4px 6px;
 }
-
 .key-input-row {
   display: flex;
   gap: 8px;
   width: 100%;
 }
-
 .key-input-row .el-input {
   flex: 1;
 }
-
 .key-readonly :deep(.el-input__wrapper) {
   background-color: var(--color-bg-secondary);
 }
-
 .key-readonly :deep(.el-input__inner) {
   font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace;
   color: var(--color-text-secondary);

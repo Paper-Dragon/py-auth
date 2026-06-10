@@ -49,6 +49,9 @@ async function guidePayment(client: AuthClient): Promise<void> {
     } else {
       console.log(`当前套餐：${label}`);
     }
+    if (planInfo.plan_detail) {
+      console.log(`套餐详情：${planInfo.plan_detail}`);
+    }
   }
 
   const payUrl = buildPayUrl(client);

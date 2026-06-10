@@ -5,12 +5,10 @@
         <div class="config-header">
           <h2>系统配置</h2>
         </div>
-
         <div v-if="loading" class="loading-state">
           <el-icon class="is-loading" :size="20"><Refresh /></el-icon>
           <span>加载中...</span>
         </div>
-
         <div v-else class="settings-sections">
           <section class="settings-section">
             <h3 class="section-title">接口限速</h3>
@@ -57,7 +55,6 @@
               </el-form-item>
             </el-form>
           </section>
-
           <section v-if="isAdmin" class="settings-section">
             <h3 class="section-title">维护</h3>
             <div class="cleanup-block">
@@ -70,7 +67,6 @@
               </div>
             </div>
           </section>
-
           <div class="settings-footer">
             <el-button type="primary" @click="saveSystemConfig" :loading="savingSystem">保存限速配置</el-button>
           </div>
@@ -79,34 +75,29 @@
     </main>
   </div>
 </template>
-
 <script setup>
 import { ref, onMounted } from 'vue'
 import { api } from '../api'
 import { ElMessage, ElMessageBox } from 'element-plus'
 import { reportApiError } from '../utils/errorFeedback'
 import { Refresh } from '@element-plus/icons-vue'
-
 const defaultRateLimit = {
   enabled: true,
   login: { max_requests: 10, window_seconds: 60 },
   heartbeat: { max_requests: 120, window_seconds: 60 },
   payment_order: { max_requests: 20, window_seconds: 60 },
 }
-
 const rateLimitRules = [
   { scope: 'login', label: '登录', hint: '防暴力破解' },
   { scope: 'heartbeat', label: '心跳', hint: '限制单 IP 频率' },
   { scope: 'payment_order', label: '公开下单', hint: '限制支付页下单' },
 ]
-
 const loading = ref(true)
 const isAdmin = ref(false)
 const savingSystem = ref(false)
 const cleaning = ref(false)
 const cleanupDays = ref(30)
 const rateLimit = ref(structuredClone(defaultRateLimit))
-
 const mergeRateLimit = (raw) => {
   const next = structuredClone(defaultRateLimit)
   if (!raw || typeof raw !== 'object') return next
@@ -118,14 +109,12 @@ const mergeRateLimit = (raw) => {
   }
   return next
 }
-
 const loadSystemConfig = async () => {
   const data = await api.getConfigs()
   if (data && typeof data === 'object') {
     rateLimit.value = mergeRateLimit(data.rate_limit)
   }
 }
-
 const loadAll = async () => {
   loading.value = true
   try {
@@ -139,7 +128,6 @@ const loadAll = async () => {
     loading.value = false
   }
 }
-
 const saveSystemConfig = async () => {
   savingSystem.value = true
   try {
@@ -152,7 +140,6 @@ const saveSystemConfig = async () => {
     savingSystem.value = false
   }
 }
-
 const cleanupOldLogs = async () => {
   const isClearAll = cleanupDays.value === 0
   try {
@@ -174,81 +161,66 @@ const cleanupOldLogs = async () => {
     cleaning.value = false
   }
 }
-
 onMounted(loadAll)
 </script>
-
 <style scoped>
 .config-header h2 {
   margin: 0;
   font-size: 18px;
 }
-
 .config-header p {
   margin: 4px 0 0;
   font-size: 13px;
   color: var(--color-text-tertiary);
 }
-
 .settings-sections {
   margin-top: 8px;
 }
-
 .settings-section {
   padding: 20px 0;
   border-bottom: 1px solid var(--color-border);
 }
-
 .settings-section:first-child {
   padding-top: 8px;
 }
-
 .settings-section:last-of-type {
   border-bottom: none;
 }
-
 .section-title {
   margin: 0 0 16px;
   font-size: 15px;
   font-weight: 600;
   color: var(--color-text-primary);
 }
-
 .settings-footer {
   margin-top: 8px;
   padding-top: 16px;
 }
-
 .form-item-help {
   color: #909399;
   font-size: 12px;
   margin: 4px 0 0;
   line-height: 1.5;
 }
-
 .rate-limit-table {
   width: 100%;
 }
-
 .cleanup-block h4 {
   margin: 0 0 4px;
   font-size: 14px;
   font-weight: 500;
   color: var(--color-text-primary);
 }
-
 .cleanup-block p {
   margin: 0 0 12px;
   font-size: 13px;
   color: var(--color-text-tertiary);
 }
-
 .cleanup-actions {
   display: flex;
   gap: 8px;
   flex-wrap: wrap;
 }
-
 .loading-state {
   padding: 40px;
   text-align: center;

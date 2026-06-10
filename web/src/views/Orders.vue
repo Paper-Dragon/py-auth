@@ -13,7 +13,6 @@
             </el-button>
           </div>
         </div>
-
         <div class="summary-row" v-if="summary">
           <div class="summary-item">
             <span class="label">全部</span>
@@ -32,7 +31,6 @@
             <span class="value">{{ summary.test }}</span>
           </div>
         </div>
-
         <div class="filter-row">
           <el-input
             v-model="keyword"
@@ -63,7 +61,6 @@
           </el-select>
           <el-button type="primary" @click="applyFilters">查询</el-button>
         </div>
-
         <el-table
           :data="orders"
           v-loading="loading"
@@ -119,7 +116,6 @@
               </template>
             </el-table-column>
         </el-table>
-
         <div class="pagination-wrap">
           <el-pagination
             background
@@ -132,7 +128,6 @@
         </div>
       </div>
     </main>
-
     <el-drawer v-model="detailVisible" title="订单详情" size="420px">
       <template v-if="currentOrder">
         <el-descriptions :column="1" border>
@@ -171,7 +166,6 @@
     </el-drawer>
   </div>
 </template>
-
 <script setup>
 import { ref, onMounted } from 'vue'
 import { api } from '../api'
@@ -179,7 +173,6 @@ import { ElMessage } from 'element-plus'
 import { reportApiError } from '../utils/errorFeedback'
 import { Refresh } from '@element-plus/icons-vue'
 import { PAY_CHANNELS, payTypeLabel } from '../constants/payChannels'
-
 const loading = ref(false)
 const orders = ref([])
 const orderTotal = ref(0)
@@ -190,13 +183,10 @@ const payType = ref('')
 const keyword = ref('')
 const testOnly = ref('')
 const summary = ref(null)
-
 const detailVisible = ref(false)
 const currentOrder = ref(null)
 const detailSyncing = ref(false)
-
 const formatTime = (value) => (value ? new Date(value).toLocaleString() : '-')
-
 const loadOrders = async () => {
   loading.value = true
   try {
@@ -217,22 +207,18 @@ const loadOrders = async () => {
     loading.value = false
   }
 }
-
 const applyFilters = () => {
   page.value = 1
   loadOrders()
 }
-
 const onPageChange = (nextPage) => {
   page.value = nextPage
   loadOrders()
 }
-
 const openDetail = (row) => {
   currentOrder.value = { ...row }
   detailVisible.value = true
 }
-
 const syncOrder = async (row) => {
   row._syncing = true
   try {
@@ -249,7 +235,6 @@ const syncOrder = async (row) => {
     if (reportApiError(error, '同步失败')) return
   }
 }
-
 const syncCurrentOrder = async () => {
   if (!currentOrder.value) return
   detailSyncing.value = true
@@ -268,7 +253,6 @@ const syncCurrentOrder = async () => {
     detailSyncing.value = false
   }
 }
-
 const copyText = async (text) => {
   try {
     await navigator.clipboard.writeText(text)
@@ -277,23 +261,19 @@ const copyText = async (text) => {
     ElMessage.error('复制失败')
   }
 }
-
 onMounted(loadOrders)
 </script>
-
 <style scoped>
 .header-meta h2 {
   margin: 0;
   font-size: 16px;
   color: var(--color-text-primary);
 }
-
 .header-meta p {
   margin: 2px 0 0;
   font-size: 12px;
   color: var(--color-text-tertiary);
 }
-
 .card-header {
   display: flex;
   justify-content: space-between;
@@ -301,26 +281,22 @@ onMounted(loadOrders)
   gap: 12px;
   margin-bottom: 16px;
 }
-
 .summary-row {
   display: grid;
   grid-template-columns: repeat(4, minmax(0, 1fr));
   gap: 12px;
   margin-bottom: 16px;
 }
-
 .summary-item {
   background: #f5f7fa;
   border-radius: 10px;
   padding: 12px 14px;
 }
-
 .summary-item .label {
   display: block;
   font-size: 12px;
   color: #909399;
 }
-
 .summary-item .value {
   display: block;
   margin-top: 4px;
@@ -328,44 +304,36 @@ onMounted(loadOrders)
   font-weight: 600;
   color: #303133;
 }
-
 .summary-item.pending .value { color: #e6a23c; }
 .summary-item.paid .value { color: #67c23a; }
 .summary-item.test .value { color: #909399; }
-
 .filter-row {
   display: flex;
   flex-wrap: wrap;
   gap: 8px;
   margin-bottom: 16px;
 }
-
 .pagination-wrap {
   margin-top: 16px;
   display: flex;
   justify-content: flex-end;
 }
-
 .drawer-actions {
   margin-top: 16px;
   display: flex;
   gap: 8px;
 }
-
 @media (max-width: 768px) {
   .card-header {
     align-items: flex-start;
     flex-direction: column;
   }
-
   .summary-row {
     grid-template-columns: repeat(2, minmax(0, 1fr));
   }
-
   .filter-row {
     flex-direction: column;
   }
-
   .filter-row .el-input,
   .filter-row .el-select,
   .filter-row .el-button {

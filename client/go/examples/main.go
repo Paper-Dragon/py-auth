@@ -52,6 +52,9 @@ func guidePayment(client *authclient.AuthClient) {
 		} else {
 			fmt.Printf("当前套餐：%s\n", label)
 		}
+		if planInfo.PlanDetail != "" {
+			fmt.Printf("套餐详情：%s\n", planInfo.PlanDetail)
+		}
 	}
 
 	fmt.Println("设备未授权，请在浏览器打开以下链接完成付款：")

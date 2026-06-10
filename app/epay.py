@@ -1,27 +1,20 @@
-import hashlib
-import json
 import logging
-import urllib.error
-import urllib.parse
-import urllib.request
 from dataclasses import dataclass
 from typing import Any
 
 import segno
 
-logger = logging.getLogger(__name__)
+from app import ezfpy_sdk as sdk
 
+logger = logging.getLogger(__name__)
 EPAY_PAY_TYPES = frozenset({"alipay", "wxpay", "qqpay"})
 ORDER_MODE_MAPI = "mapi"
 ORDER_MODE_SUBMIT = "submit"
 EPAY_ORDER_MODES = frozenset({ORDER_MODE_MAPI, ORDER_MODE_SUBMIT})
 EPAY_TEST_PRODUCT_KEY = "__epay_test__"
-MAPI_SUCCESS_CODES = {1, "1", 200, "200"}
-
-# mapi.php 返回的支付模式
-PAY_MODE_REDIRECT = "redirect"  # 跳转到支付页（alipay 等返回 payurl）
-PAY_MODE_FORM = "form"          # 表单自动提交（submit.php）
-PAY_MODE_QRCODE = "qrcode"      # 扫码支付（wxpay/qqpay 返回 qrcode/code_url）
+PAY_MODE_REDIRECT = "redirect"
+PAY_MODE_FORM = "form"
+PAY_MODE_QRCODE = "qrcode"
 
 
 @dataclass
@@ -40,32 +33,40 @@ def _is_http_url(value: str) -> bool:
 
 
 def build_qr_data_uri(content: str) -> str:
-    """将二维码内容编码为可直接用于 <img src> 的 SVG data URI。"""
     qr = segno.make(content, error="m")
     return qr.svg_data_uri(scale=6, border=2)
 
 
+def normalize_epay_api_url(api_url: str) -> str:
+    return sdk.normalize_base_url(api_url)
+
+
+def build_submit_action(api_url: str) -> str:
+    return f"{normalize_epay_api_url(api_url)}/submit.php"
+
+
+def build_mapi_endpoint(api_url: str) -> str:
+    return f"{normalize_epay_api_url(api_url)}/mapi.php"
+
+
 def epay_sign(params: dict[str, Any], merchant_key: str) -> str:
-    """易支付签名：参数按 ASCII 排序拼接 key=value（剔除 sign/sign_type/空值），末尾接密钥后 MD5。"""
-    items: list[str] = []
-    for key in sorted(params.keys()):
-        if key in ("sign", "sign_type"):
-            continue
-        value = params[key]
-        if value is None or value == "":
-            continue
-        items.append(f"{key}={value}")
-    sign_str = "&".join(items)
-    raw = sign_str + merchant_key
-    return hashlib.md5(raw.encode("utf-8")).hexdigest()
+    return sdk.calc_sign(
+        sdk.build_sign_string(
+            money=str(params.get("money", "")),
+            name=str(params.get("name", "")),
+            notify_url=str(params.get("notify_url", "")),
+            out_trade_no=str(params.get("out_trade_no", "")),
+            pid=str(params.get("pid", "")),
+            return_url=str(params.get("return_url", "")),
+            sitename=str(params.get("sitename", "")),
+            pay_type=str(params.get("type", "")),
+        ),
+        merchant_key,
+    )
 
 
 def epay_verify(params: dict[str, Any], merchant_key: str) -> bool:
-    received = str(params.get("sign", "")).lower()
-    if not received:
-        return False
-    expected = epay_sign(params, merchant_key)
-    return received == expected
+    return sdk.verify_sign(params, merchant_key)
 
 
 def build_order_params(
@@ -82,77 +83,17 @@ def build_order_params(
 ) -> dict[str, str]:
     if pay_type not in EPAY_PAY_TYPES:
         raise ValueError(f"不支持的支付方式: {pay_type}")
-
-    payload: dict[str, str] = {
-        "pid": str(pid),
-        "type": pay_type,
-        "out_trade_no": out_trade_no,
-        "notify_url": notify_url,
-        "return_url": return_url,
-        "name": name[:127],
-        "money": money,
-        "sign_type": "MD5",
-    }
-    site = (sitename or "").strip()
-    if site:
-        payload["sitename"] = site[:127]
-
-    payload["sign"] = epay_sign(payload, merchant_key)
-    return payload
-
-
-def normalize_epay_api_url(api_url: str) -> str:
-    """规范为易支付网关根地址，剔除用户误填的脚本路径。"""
-    url = (api_url or "").strip().rstrip("/")
-    if not url:
-        return ""
-    lowered = url.lower()
-    for suffix in ("/mapi.php", "/submit.php", "/api.php"):
-        if lowered.endswith(suffix):
-            url = url[: -len(suffix)].rstrip("/")
-            lowered = url.lower()
-    return url
-
-
-def build_submit_action(api_url: str) -> str:
-    return f"{normalize_epay_api_url(api_url)}/submit.php"
-
-
-def build_mapi_endpoint(api_url: str) -> str:
-    return f"{normalize_epay_api_url(api_url)}/mapi.php"
-
-
-def _epay_http_error_message(api_url: str, exc: Exception) -> str:
-    return f"无法连接易支付接口: {exc}"
-
-
-def _http_post_form(url: str, fields: dict[str, str], timeout: int = 20) -> str:
-    data = urllib.parse.urlencode(fields).encode("utf-8")
-    request = urllib.request.Request(
-        url,
-        data=data,
-        method="POST",
-        headers={"Content-Type": "application/x-www-form-urlencoded"},
+    return sdk.build_signed_fields(
+        money=money,
+        name=name[:127],
+        notify_url=notify_url,
+        out_trade_no=out_trade_no,
+        pid=str(pid),
+        return_url=return_url,
+        sitename=(sitename or "")[:127],
+        pay_type=pay_type,
+        key=merchant_key,
     )
-    with urllib.request.urlopen(request, timeout=timeout) as response:
-        return response.read().decode("utf-8", errors="replace")
-
-
-def _http_get(url: str, timeout: int = 20) -> str:
-    request = urllib.request.Request(url, method="GET")
-    with urllib.request.urlopen(request, timeout=timeout) as response:
-        return response.read().decode("utf-8", errors="replace")
-
-
-def _parse_json_body(body: str) -> dict[str, Any]:
-    try:
-        parsed = json.loads(body)
-    except json.JSONDecodeError as exc:
-        logger.error("易支付响应非 JSON: %s", body[:500])
-        raise ValueError("易支付接口返回格式异常") from exc
-    if not isinstance(parsed, dict):
-        raise ValueError("易支付接口返回格式异常")
-    return parsed
 
 
 def query_merchant(
@@ -162,106 +103,22 @@ def query_merchant(
     *,
     optional: bool = False,
 ) -> dict[str, Any] | None:
-    """查询商户信息；optional 为 True 时，网关无 api.php 查询接口则返回 None 而不报错。"""
-    base = normalize_epay_api_url(api_url)
-    if not base:
-        raise ValueError("易支付接口地址未配置")
-
-    query = urllib.parse.urlencode({"act": "query", "pid": str(pid), "key": merchant_key})
-    url = f"{base}/api.php?{query}"
-    try:
-        body = _http_get(url)
-    except urllib.error.HTTPError as exc:
-        if optional and exc.code in (404, 405):
-            logger.info("易支付商户查询接口不可用 (%s)，跳过: %s", exc.code, url)
-            return None
-        logger.error("易支付商户查询失败: %s", exc)
-        raise ValueError(_epay_http_error_message(base, exc)) from exc
-    except urllib.error.URLError as exc:
-        logger.error("易支付商户查询失败: %s", exc)
-        raise ValueError(_epay_http_error_message(base, exc)) from exc
-
-    body = body.strip()
-    if not body:
-        raise ValueError("易支付商户查询返回为空")
-
-    if body.startswith("{"):
-        result = _parse_json_body(body)
-        code = result.get("code")
-        if code not in MAPI_SUCCESS_CODES and str(result.get("status", "")).lower() not in ("success", "1"):
-            message = result.get("msg") or result.get("message") or "商户查询失败"
-            raise ValueError(str(message))
-        return result
-
-    return {"code": 200, "msg": "连接成功", "raw": body[:500]}
+    return sdk.act(api_url, str(pid), merchant_key, optional=optional)
 
 
 def query_order(api_url: str, pid: str, merchant_key: str, out_trade_no: str) -> dict[str, Any]:
-    base = normalize_epay_api_url(api_url)
-    query = urllib.parse.urlencode({
-        "act": "order",
-        "pid": str(pid),
-        "key": merchant_key,
-        "out_trade_no": out_trade_no,
-    })
-    url = f"{base}/api.php?{query}"
-    try:
-        body = _http_get(url)
-    except urllib.error.HTTPError as exc:
-        raise ValueError(_epay_http_error_message(base, exc)) from exc
-    except urllib.error.URLError as exc:
-        raise ValueError(f"订单查询失败: {exc}") from exc
-    if body.strip().startswith("{"):
-        return _parse_json_body(body)
-    return {"code": 200, "msg": "查询完成", "raw": body[:500]}
+    del pid, merchant_key
+    return sdk.order(api_url, out_trade_no)
 
 
-def request_mapi_pay(
-    api_url: str,
-    params: dict[str, str],
-    *,
-    merchant_key: str,
-    sitename: str = "",
-) -> MapiResult:
-    signed = build_order_params(
-        pid=params["pid"],
-        merchant_key=merchant_key,
-        pay_type=params["type"],
-        out_trade_no=params["out_trade_no"],
-        notify_url=params["notify_url"],
-        return_url=params["return_url"],
-        name=params["name"],
-        money=params["money"],
-        sitename=sitename,
-    )
-    base = normalize_epay_api_url(api_url)
-    endpoint = build_mapi_endpoint(base)
-    try:
-        body = _http_post_form(endpoint, signed)
-    except urllib.error.HTTPError as exc:
-        logger.error("易支付 mapi 请求失败: %s", exc)
-        raise ValueError(_epay_http_error_message(base, exc)) from exc
-    except urllib.error.URLError as exc:
-        logger.error("易支付 mapi 请求失败: %s", exc)
-        raise ValueError(f"易支付 mapi 请求失败: {exc}") from exc
-
-    result = _parse_json_body(body)
-    code = result.get("code")
-    if code not in MAPI_SUCCESS_CODES:
-        message = result.get("msg") or result.get("message") or "易支付下单失败"
-        raise ValueError(str(message))
-
-    # payurl：可直接跳转的收银台页面（支付宝等）
+def _mapi_result_from_response(result: dict[str, Any]) -> MapiResult:
     pay_url = result.get("payurl") or result.get("url")
     if pay_url:
         return MapiResult(pay_mode=PAY_MODE_REDIRECT, pay_url=str(pay_url), raw=result)
-
-    # qrcode：原始支付串，需要前端渲染成二维码供扫码（微信/QQ）
     qrcode = result.get("qrcode")
     code_url = result.get("code_url") or result.get("img")
     if qrcode:
         qr_content = str(qrcode)
-        # code_url 若是现成的二维码图片地址则直接用，否则本地按内容生成
         if code_url and _is_http_url(str(code_url)):
             qr_image = str(code_url)
         else:
@@ -272,8 +129,6 @@ def request_mapi_pay(
             qr_image=qr_image,
             raw=result,
         )
-
-    # 仅返回二维码图片地址（无原始串）
     if code_url:
         if _is_http_url(str(code_url)):
             return MapiResult(pay_mode=PAY_MODE_QRCODE, qr_image=str(code_url), raw=result)
@@ -283,13 +138,32 @@ def request_mapi_pay(
             qr_image=build_qr_data_uri(str(code_url)),
             raw=result,
         )
-
-    # urlscheme：唤起 App 的 scheme，桌面浏览器无法跳转，仅作兜底
     urlscheme = result.get("urlscheme")
     if urlscheme:
         return MapiResult(pay_mode=PAY_MODE_REDIRECT, pay_url=str(urlscheme), raw=result)
-
     raise ValueError("易支付接口未返回支付信息")
+
+
+def request_mapi_pay(
+    api_url: str,
+    params: dict[str, str],
+    *,
+    merchant_key: str,
+    sitename: str = "",
+) -> MapiResult:
+    result = sdk.mapi(
+        api_url,
+        money=params["money"],
+        name=params["name"],
+        notify_url=params["notify_url"],
+        out_trade_no=params["out_trade_no"],
+        pay_type=params["type"],
+        pid=params["pid"],
+        return_url=params["return_url"],
+        sitename=sitename,
+        key=merchant_key,
+    )
+    return _mapi_result_from_response(result)
 
 
 def build_submit_pay(
@@ -324,7 +198,7 @@ def create_pay_result(
     sitename: str = "",
     order_mode: str = ORDER_MODE_MAPI,
 ) -> MapiResult:
-    """按 order_mode 选择下单方式：mapi（API 接口）或 submit（页面跳转），两者互相独立、互不回退。"""
+    site = sitename or ""
     if order_mode == ORDER_MODE_SUBMIT:
         signed = build_order_params(
             pid=pid,
@@ -335,24 +209,22 @@ def create_pay_result(
             return_url=return_url,
             name=name,
             money=money,
-            sitename=sitename,
+            sitename=site,
         )
         return build_submit_pay(api_url, signed)
-
-    base = {
-        "pid": str(pid),
-        "type": pay_type,
-        "out_trade_no": out_trade_no,
-        "notify_url": notify_url,
-        "return_url": return_url,
-        "name": name,
-        "money": money,
-    }
     return request_mapi_pay(
         api_url,
-        base,
+        {
+            "pid": str(pid),
+            "type": pay_type,
+            "out_trade_no": out_trade_no,
+            "notify_url": notify_url,
+            "return_url": return_url,
+            "name": name,
+            "money": money,
+        },
         merchant_key=merchant_key,
-        sitename=sitename,
+        sitename=site,
     )
 
 

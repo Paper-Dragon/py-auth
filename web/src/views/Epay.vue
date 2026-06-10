@@ -14,12 +14,10 @@
             <el-button type="primary" link @click="goOrders">订单管理</el-button>
           </div>
         </div>
-
         <div v-if="loading" class="loading-state">
           <el-icon class="is-loading" :size="20"><Refresh /></el-icon>
           <span>加载中...</span>
         </div>
-
         <template v-else>
           <el-form
             :model="epayForm"
@@ -54,7 +52,6 @@
                 />
               </el-form-item>
             </section>
-
             <section class="section-block">
               <div class="section-title">
                 <h3>支付渠道</h3>
@@ -85,7 +82,6 @@
                 style="margin-top: 12px"
               />
             </section>
-
             <section class="section-block">
               <div class="section-title">
                 <h3>回调与参数</h3>
@@ -119,7 +115,6 @@
                 <el-button @click="copyNotifyUrl">复制回调地址</el-button>
               </el-form-item>
             </section>
-
             <section class="section-block">
               <div class="section-title">
                 <h3>测试</h3>
@@ -166,7 +161,6 @@
     </main>
   </div>
 </template>
-
 <script setup>
 import { ref, computed, onMounted } from 'vue'
 import { useRouter } from 'vue-router'
@@ -180,7 +174,6 @@ const router = useRouter()
 const loading = ref(true)
 const saving = ref(false)
 const epayFormRef = ref(null)
-
 const epayForm = ref({
   enabled: false,
   api_url: '',
@@ -194,20 +187,16 @@ const epayForm = ref({
   enabled_channels: ['alipay', 'wxpay', 'qqpay'],
   resolved_notify_url: '',
 })
-
 const testingConnection = ref(false)
 const testingPayment = ref(false)
 const testPayType = ref('alipay')
 const testPayMoney = ref('0.01')
 const testConnectionMessage = ref('')
 const testConnectionOk = ref(false)
-
 const enabledChannelOptions = computed(() =>
   PAY_CHANNELS.filter((item) => epayForm.value.enabled_channels.includes(item.value))
 )
-
 const enabledChannelCount = computed(() => epayForm.value.enabled_channels.length)
-
 const epayRules = {
   api_url: [{
     validator: (_, value, callback) => {
@@ -224,9 +213,7 @@ const epayRules = {
     trigger: 'blur',
   }],
 }
-
 const isChannelEnabled = (value) => epayForm.value.enabled_channels.includes(value)
-
 const toggleChannel = (value, enabled) => {
   const current = [...epayForm.value.enabled_channels]
   if (enabled) {
@@ -237,7 +224,6 @@ const toggleChannel = (value, enabled) => {
   }
   epayForm.value.enabled_channels = current
 }
-
 const syncTestPayType = () => {
   if (!enabledChannelOptions.value.length) {
     testPayType.value = ''
@@ -247,7 +233,6 @@ const syncTestPayType = () => {
     testPayType.value = enabledChannelOptions.value[0].value
   }
 }
-
 const fillEpayForm = (data) => {
   epayForm.value = {
     enabled: !!data.enabled,
@@ -266,12 +251,10 @@ const fillEpayForm = (data) => {
   }
   syncTestPayType()
 }
-
 const loadEpayConfig = async () => {
   const data = await api.getEpayConfig()
   fillEpayForm(data)
 }
-
 const buildPayload = () => {
   const payload = {
     enabled: epayForm.value.enabled,
@@ -288,7 +271,6 @@ const buildPayload = () => {
   }
   return payload
 }
-
 const saveEpayConfig = async () => {
   if (!epayFormRef.value) return
   if (epayForm.value.enabled && !epayForm.value.enabled_channels.length) {
@@ -309,7 +291,6 @@ const saveEpayConfig = async () => {
     }
   })
 }
-
 const persistEpayConfig = async () => {
   if (!epayFormRef.value) return false
   if (epayForm.value.enabled && !epayForm.value.enabled_channels.length) {
@@ -325,7 +306,6 @@ const persistEpayConfig = async () => {
   })
   return saved
 }
-
 const copyText = async (text) => {
   if (!text) {
     ElMessage.warning('暂无可复制的地址')
@@ -338,11 +318,9 @@ const copyText = async (text) => {
     ElMessage.error('复制失败')
   }
 }
-
 const openPayPage = () => {
   window.open('/pay', '_blank')
 }
-
 const copyNotifyUrl = async () => {
   const explicit = (epayForm.value.notify_url || '').trim()
   if (explicit) {
@@ -356,11 +334,9 @@ const copyNotifyUrl = async () => {
   }
   ElMessage.warning('请先保存配置，或手动填写异步通知地址')
 }
-
 const goOrders = () => {
   router.push('/orders')
 }
-
 const runTestConnection = async () => {
   if (!testPayType.value) {
     ElMessage.warning('请先选择支付渠道')
@@ -382,7 +358,6 @@ const runTestConnection = async () => {
     testingConnection.value = false
   }
 }
-
 const runTestPayment = async () => {
   if (!testPayType.value) {
     ElMessage.warning('请先开通至少一种支付渠道')
@@ -411,7 +386,6 @@ const runTestPayment = async () => {
     testingPayment.value = false
   }
 }
-
 onMounted(async () => {
   loading.value = true
   try {
@@ -423,7 +397,6 @@ onMounted(async () => {
   }
 })
 </script>
-
 <style scoped>
 .card-header {
   display: flex;
@@ -432,59 +405,49 @@ onMounted(async () => {
   gap: 16px;
   margin-bottom: 20px;
 }
-
 .header-meta h2 {
   margin: 0;
   font-size: 18px;
   color: var(--color-text-primary);
 }
-
 .header-meta p {
   margin: 4px 0 0;
   font-size: 13px;
   color: var(--color-text-tertiary);
 }
-
 .header-actions {
   display: flex;
   align-items: center;
   gap: 8px;
   flex-wrap: wrap;
 }
-
 .section-block {
   margin-bottom: 28px;
   padding-bottom: 8px;
   border-bottom: 1px solid #ebeef5;
 }
-
 .section-block:last-child {
   border-bottom: none;
   margin-bottom: 0;
 }
-
 .section-title {
   margin-bottom: 16px;
 }
-
 .section-title h3 {
   margin: 0;
   font-size: 15px;
   color: #303133;
 }
-
 .section-title p {
   margin: 4px 0 0;
   font-size: 12px;
   color: #909399;
 }
-
 .channel-grid {
   display: grid;
   grid-template-columns: repeat(auto-fill, minmax(220px, 1fr));
   gap: 12px;
 }
-
 .channel-card {
   border: 1px solid #ebeef5;
   border-radius: 10px;
@@ -492,12 +455,10 @@ onMounted(async () => {
   background: #fafafa;
   transition: border-color 0.2s, background 0.2s;
 }
-
 .channel-card.active {
   border-color: #b3d8ff;
   background: #f0f9ff;
 }
-
 .channel-card-head {
   display: flex;
   justify-content: space-between;
@@ -505,27 +466,23 @@ onMounted(async () => {
   gap: 8px;
   margin-bottom: 8px;
 }
-
 .channel-name {
   font-size: 15px;
   font-weight: 600;
   color: #303133;
 }
-
 .channel-desc {
   margin: 0;
   font-size: 12px;
   color: #909399;
   line-height: 1.5;
 }
-
 .form-item-help {
   color: #909399;
   font-size: 12px;
   margin: 4px 0 0;
   line-height: 1.5;
 }
-
 .test-actions {
   display: flex;
   flex-wrap: wrap;
@@ -533,15 +490,12 @@ onMounted(async () => {
   align-items: center;
   margin-bottom: 8px;
 }
-
 .test-success {
   color: #67c23a;
 }
-
 .test-fail {
   color: #f56c6c;
 }
-
 .loading-state {
   padding: 48px 20px;
   text-align: center;
@@ -551,16 +505,13 @@ onMounted(async () => {
   align-items: center;
   gap: 8px;
 }
-
 @media (max-width: 768px) {
   .card-header {
     flex-direction: column;
   }
-
   .header-actions {
     width: 100%;
   }
-
   :deep(.el-form-item__label) {
     width: 110px !important;
   }

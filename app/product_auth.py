@@ -15,6 +15,7 @@ from app.models import (
 )
 from app.product_utils import (
     pay_type_from_product,
+    plan_detail_from_product,
     plan_from_product,
     software_name_for_product,
 )
@@ -204,12 +205,14 @@ def build_product_plan_info(db: Session, product: Product) -> dict[str, Any]:
     from app.services.payment_service import is_payable_product, product_price, validate_pay_type
 
     plan = plan_from_product(product)
+    plan_detail = plan_detail_from_product(product)
     info: dict[str, Any] = {
         "display_name": product.display_name,
         "software_name": software_name_for_product(product) or None,
         "auth_mode": product.auth_mode,
         "plan": plan,
         "plan_label": format_plan_name(plan),
+        "plan_detail": plan_detail,
         "can_pay": False,
     }
 

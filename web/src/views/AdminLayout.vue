@@ -19,7 +19,6 @@
         </el-menu-item>
       </el-menu>
     </el-aside>
-
     <el-container class="main-container">
       <el-header class="header">
         <div class="header-left">
@@ -50,12 +49,10 @@
           </el-dropdown>
         </div>
       </el-header>
-
       <el-main class="main">
         <router-view />
       </el-main>
     </el-container>
-
     <el-dialog v-model="showPasswordDialog" title="修改密码" width="400px">
       <el-form ref="passwordFormRef" :model="passwordForm" :rules="passwordRules" label-width="80px">
         <el-form-item label="旧密码" prop="oldPassword">
@@ -80,7 +77,6 @@
     </el-dialog>
   </el-container>
 </template>
-
 <script setup>
 import { ref, computed, onMounted } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
@@ -90,15 +86,12 @@ import {
 } from '@element-plus/icons-vue'
 import { api, isSessionExpiredError } from '../api'
 import { ElMessage } from 'element-plus'
-
 const route = useRoute()
 const router = useRouter()
 const username = ref(localStorage.getItem('username') || 'Admin')
 const isAdmin = ref(localStorage.getItem('isAdmin') === '1')
 const asideCollapsed = ref(false)
-
 const activeMenu = computed(() => route.path)
-
 const adminMenuItems = [
   { index: '/products', title: '产品管理', icon: Goods },
   { index: '/orders', title: '订单管理', icon: Tickets },
@@ -107,7 +100,6 @@ const adminMenuItems = [
   { index: '/settings', title: '系统配置', icon: Setting },
   { index: '/logs', title: '审计日志', icon: Document },
 ]
-
 const menuItems = computed(() => {
   const items = [
     { index: '/overview', title: '概览', icon: HomeFilled },
@@ -119,9 +111,7 @@ const menuItems = computed(() => {
   items.push({ index: '/docs', title: '使用文档', icon: Reading })
   return items
 })
-
 const menuKey = computed(() => `${isAdmin.value}-${menuItems.value.length}`)
-
 const pageMeta = {
   '/overview': { title: '概览' },
   '/devices': { title: '设备管理' },
@@ -133,15 +123,12 @@ const pageMeta = {
   '/logs': { title: '审计日志' },
   '/docs': { title: '使用文档' },
 }
-
 const pageTitle = computed(() => pageMeta[route.path]?.title || '')
 const pageSubtitle = computed(() => pageMeta[route.path]?.subtitle || '')
-
 const showPasswordDialog = ref(false)
 const changingPassword = ref(false)
 const passwordFormRef = ref(null)
 const passwordForm = ref({ oldPassword: '', newPassword: '', confirmPassword: '' })
-
 const passwordRules = {
   oldPassword: [{ required: true, message: '请输入旧密码', trigger: 'blur' }],
   newPassword: [
@@ -159,16 +146,13 @@ const passwordRules = {
     },
   ],
 }
-
 const toggleAside = () => {
   asideCollapsed.value = !asideCollapsed.value
 }
-
 const showChangePassword = () => {
   passwordForm.value = { oldPassword: '', newPassword: '', confirmPassword: '' }
   showPasswordDialog.value = true
 }
-
 const handleChangePassword = async () => {
   if (!passwordFormRef.value) return
   try {
@@ -187,14 +171,12 @@ const handleChangePassword = async () => {
     changingPassword.value = false
   }
 }
-
 const handleLogout = () => {
   api.logout()
   localStorage.removeItem('username')
   localStorage.removeItem('isAdmin')
   router.push('/login')
 }
-
 onMounted(async () => {
   try {
     const me = await api.getMe()
@@ -207,13 +189,11 @@ onMounted(async () => {
   }
 })
 </script>
-
 <style scoped>
 .admin-layout {
   height: 100vh;
   overflow: hidden;
 }
-
 .aside {
   --aside-width: 220px;
   --aside-collapsed-width: 64px;
@@ -226,12 +206,10 @@ onMounted(async () => {
   transition: width 0.2s, flex-basis 0.2s;
   overflow: hidden;
 }
-
 .aside.collapsed {
   width: var(--aside-collapsed-width);
   flex: 0 0 var(--aside-collapsed-width);
 }
-
 .logo {
   height: 56px;
   display: flex;
@@ -244,18 +222,15 @@ onMounted(async () => {
   flex-shrink: 0;
   overflow: hidden;
 }
-
 .aside.collapsed .logo {
   justify-content: center;
   padding: 0;
   gap: 0;
 }
-
 .logo-text {
   white-space: nowrap;
   overflow: hidden;
 }
-
 .menu {
   border-right: none;
   background: transparent;
@@ -264,34 +239,27 @@ onMounted(async () => {
   overflow-y: auto;
   width: 100% !important;
 }
-
 .menu:not(.el-menu--collapse) {
   min-width: var(--aside-width);
 }
-
 .menu.el-menu--collapse {
   min-width: var(--aside-collapsed-width);
 }
-
 .menu :deep(.el-menu-item) {
   color: rgba(255, 255, 255, 0.65);
 }
-
 .menu :deep(.el-menu-item.is-active) {
   background: #1890ff !important;
   color: white;
 }
-
 .menu :deep(.el-menu-item:hover) {
   color: white;
 }
-
 .main-container {
   flex: 1;
   min-width: 0;
   overflow: hidden;
 }
-
 .header {
   background: white;
   border-bottom: 1px solid #f0f0f0;
@@ -302,74 +270,62 @@ onMounted(async () => {
   height: 56px;
   flex-shrink: 0;
 }
-
 .header-left {
   display: flex;
   align-items: center;
   gap: 8px;
   min-width: 0;
 }
-
 .collapse-btn {
   padding: 4px;
   flex-shrink: 0;
 }
-
 .page-title {
   font-size: 16px;
   font-weight: 600;
   color: #303133;
   line-height: 1.3;
 }
-
 .page-subtitle {
   font-size: 12px;
   color: #909399;
   line-height: 1.3;
 }
-
 .header-right {
   display: flex;
   align-items: center;
   gap: 12px;
   flex-shrink: 0;
 }
-
 .user-info {
   display: flex;
   align-items: center;
   gap: 8px;
 }
-
 .username {
   font-size: 14px;
   color: #606266;
 }
-
 .main {
   background: #f0f2f5;
   padding: 16px 20px;
   overflow: auto;
 }
-
 .main > * {
   width: 100%;
   min-width: 0;
   box-sizing: border-box;
 }
-
 @media (min-width: 1280px) {
   .main {
     padding: 20px 28px;
   }
 }
-
 @media (min-width: 1600px) {
   .main {
     padding: 24px 32px;
   }
 }
-
 @media (max-width: 768px) {
   .aside:not(.collapsed) {
     position: fixed;
@@ -377,12 +333,10 @@ onMounted(async () => {
     height: 100vh;
     box-shadow: 2px 0 8px rgba(0, 0, 0, 0.15);
   }
-
   .aside.collapsed {
     position: relative;
     z-index: 1;
   }
-
   .username {
     display: none;
   }
