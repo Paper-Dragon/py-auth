@@ -18,7 +18,6 @@ from app.product_utils import (
     generate_product_key as make_product_key,
     is_reserved_software_name,
     is_uuid,
-    plan_from_product,
     validate_product_key,
 )
 from app.schemas import ProductCreate, ProductOptionResponse, ProductResponse, ProductUpdate
@@ -142,7 +141,6 @@ async def list_product_options(
             if product.is_default
             else (product.display_name or display_software_name(product)),
             is_active=product.is_active,
-            plan=plan_from_product(product),
         )
         for product in products
     ]

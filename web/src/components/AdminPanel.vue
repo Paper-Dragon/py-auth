@@ -676,24 +676,17 @@ const toggleAuth = async (device, authorize) => {
   }
 }
 
-const planOptions = computed(() => {
-  const set = new Set()
-  for (const item of productOptions.value) {
-    const plan = (item.plan || '').trim()
-    if (plan) set.add(plan)
-  }
-  return [...set].sort()
-})
-
 const planDialogVisible = ref(false)
 const planDialogSaving = ref(false)
 const planDialogValue = ref('')
+const planOptions = ref([])
 let planDialogDevice = null
 
 const setManualPlan = (device) => {
   if (device._updating) return
   planDialogDevice = device
   planDialogValue.value = device.manual_plan || ''
+  planOptions.value = device.plan_options || []
   planDialogVisible.value = true
 }
 

@@ -1,6 +1,6 @@
 from pydantic import BaseModel, Field
 from datetime import datetime
-from typing import Optional, Dict, Any
+from typing import Optional, Dict, Any, List
 
 class EncryptedRequest(BaseModel):
     """加密的请求数据（device_id、software_name 等在加密载荷内；产品 UUID 由 client_secret 解析，software_name 须与该产品一致）"""
@@ -29,6 +29,7 @@ class DeviceResponse(BaseModel):
     plan_label: Optional[str] = None
     plan_hint: Optional[str] = None
     plan_tag: Optional[str] = None
+    plan_options: List[str] = Field(default_factory=list, description="手动设置套餐时可选的档位（按所属产品）")
     auth_message: Optional[str] = None
     created_at: datetime = Field(description="首次注册：设备首次接入后不变")
     updated_at: Optional[datetime] = Field(
@@ -56,7 +57,6 @@ class ProductOptionResponse(BaseModel):
     software_name: str = ""
     display_name: str
     is_active: bool = True
-    plan: Optional[str] = None
 
 class EncryptedResponse(BaseModel):
     """加密的响应数据"""

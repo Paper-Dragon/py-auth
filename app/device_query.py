@@ -6,7 +6,7 @@ from sqlalchemy.orm import Session
 from app.models import Device, Product
 from app.product_auth import build_device_plan_display, evaluate_device_authorization
 from app.product_resolve import build_product_key_map
-from app.product_utils import display_software_name
+from app.product_utils import display_software_name, plan_from_product
 from app.schemas import DeviceListSummary, DeviceResponse
 
 
@@ -94,9 +94,12 @@ def serialize_device(
     if product:
         data["product_display_name"] = _product_display_name(product)
         data["product_auth_mode"] = product.auth_mode
+        plan = plan_from_product(product)
+        data["plan_options"] = [plan] if plan else []
     else:
         data["product_display_name"] = None
         data["product_auth_mode"] = None
+        data["plan_options"] = []
 
     if db is not None:
         evaluation = evaluate_device_authorization(db, device, product=product)
