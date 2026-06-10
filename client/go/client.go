@@ -506,25 +506,43 @@ func (c *AuthClient) enqueueDeviceInfoRefresh() {
 			c.refreshMu.Unlock()
 		}()
 
+		enriched := false
+
+		c.deviceInfoMu.RLock()
+		wasDeferred := c.deviceInfoDeferred
+		c.deviceInfoMu.RUnlock()
+
 		c.ensureFullDeviceInfo()
+		if wasDeferred {
+			enriched = true
+		}
 
 		c.deviceInfoMu.RLock()
 		info := c.deviceInfo
 		c.deviceInfoMu.RUnlock()
-		if !deviceInfoPublicIPUnset(&info) {
-			return
+		if deviceInfoPublicIPUnset(&info) {
+			pub := strings.TrimSpace(fetchPublicIP())
+			if pub != "" {
+				c.deviceInfoMu.Lock()
+				if c.deviceInfo.Network == nil {
+					c.deviceInfo.Network = &DeviceNetwork{}
+				}
+				c.deviceInfo.Network.PublicIP = pub
+				c.deviceInfoMu.Unlock()
+				enriched = true
+			}
 		}
 
-		pub := strings.TrimSpace(fetchPublicIP())
-		if pub == "" {
-			return
+		if enriched {
+			c.logDebug("后台补全完成，发送补全心跳...")
+			_, storedHb := c.cache.snapshotAuthRow()
+			nextHb := storedHb + 1
+			r := c.checkOnline(nextHb)
+			if r.Success {
+				hb := nextHb
+				c.persistHeartbeatResult(r, &hb)
+			}
 		}
-		c.deviceInfoMu.Lock()
-		if c.deviceInfo.Network == nil {
-			c.deviceInfo.Network = &DeviceNetwork{}
-		}
-		c.deviceInfo.Network.PublicIP = pub
-		c.deviceInfoMu.Unlock()
 	}()
 }
 

@@ -159,23 +159,40 @@ export class AuthClient {
     this.deviceInfoDeferred = false;
   }
 
-  /** 后台补全 device_info（全量采集 + 公网 IP），结果供下次心跳使用。 */
   private enqueueDeviceInfoRefresh(): void {
     if (this.refreshInFlight) return;
     this.refreshInFlight = true;
     void (async () => {
       try {
+        let enriched = false;
+
+        const wasDeferred = this.deviceInfoDeferred;
         this.ensureFullDeviceInfo();
+        if (wasDeferred) enriched = true;
+
         const hasPublicIp =
           typeof this.deviceInfo.network?.public_ip === "string" &&
           this.deviceInfo.network.public_ip.trim() !== "";
-        if (hasPublicIp) return;
-        const pub = (await fetchPublicIp()).trim();
-        if (!pub) return;
-        this.deviceInfo = {
-          ...this.deviceInfo,
-          network: { ...(this.deviceInfo.network ?? {}), public_ip: pub },
-        };
+        if (!hasPublicIp) {
+          const pub = (await fetchPublicIp()).trim();
+          if (pub) {
+            this.deviceInfo = {
+              ...this.deviceInfo,
+              network: { ...(this.deviceInfo.network ?? {}), public_ip: pub },
+            };
+            enriched = true;
+          }
+        }
+
+        if (enriched) {
+          this.logDebug("后台补全完成，发送补全心跳...");
+          const snap = this.cache.snapshotForAuthorizationCheck();
+          const nextHb = snap.storedHeartbeatTimes + 1;
+          const r = await this.checkOnline(nextHb);
+          if (r.success) {
+            this.persistOnlineResult(r, r.authorized ? nextHb : undefined);
+          }
+        }
       } catch (e: unknown) {
         this.logDebug(`后台补全 device_info 失败: ${String(e)}`);
       } finally {
@@ -333,7 +350,6 @@ export class AuthClient {
     return onlineResult;
   }
 
-  /** 兼容保留：现与 checkAuthorization 等价（单心跳 + 后台补全 device_info）。 */
   async checkAuthorizationProgressive(forceOnline = false): Promise<AuthResult> {
     return this.checkAuthorization(forceOnline);
   }

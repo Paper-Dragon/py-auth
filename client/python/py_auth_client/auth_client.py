@@ -397,7 +397,7 @@ class AuthClient:
             return copy.deepcopy(self.device_info) if self.device_info else {}
 
     def _enqueue_device_info_refresh(self) -> None:
-        """后台补全 device_info（全量采集 + 公网 IP），结果供下次心跳使用。"""
+
         with self._refresh_lock:
             if self._refresh_in_flight:
                 return
@@ -405,18 +405,33 @@ class AuthClient:
 
         def _worker() -> None:
             try:
+                enriched = False
+
+                with self._device_info_lock:
+                    was_deferred = self._device_info_deferred
+
                 self._ensure_full_device_info()
+                if was_deferred:
+                    enriched = True
+
                 with self._device_info_lock:
                     need_pub = _device_info_lacks_nonblank_public_ip(self.device_info)
-                if not need_pub:
-                    return
-                pub = (fetch_public_ip() or '').strip()
-                if not pub:
-                    return
-                with self._device_info_lock:
-                    nw = dict(self.device_info.get('network') or {})
-                    nw['public_ip'] = pub
-                    self.device_info['network'] = nw
+                if need_pub:
+                    pub = (fetch_public_ip() or '').strip()
+                    if pub:
+                        with self._device_info_lock:
+                            nw = dict(self.device_info.get('network') or {})
+                            nw['public_ip'] = pub
+                            self.device_info['network'] = nw
+                        enriched = True
+
+                if enriched:
+                    self._log_debug('后台补全完成，发送补全心跳...')
+                    _, stored_hb = self.cache._snapshot_auth_row()
+                    next_hb = stored_hb + 1
+                    r = self._check_online(next_hb)
+                    if r.get('success'):
+                        self._write_check_cache_retries(r, next_hb if r.get('authorized') else None)
             except Exception as e:
                 self._log_debug(f'后台补全 device_info 失败: {str(e)}')
             finally:
@@ -430,7 +445,7 @@ class AuthClient:
                 self._refresh_in_flight = False
 
     def _format_cache_remaining_time(self, cached_at: float) -> str:
-        """本地授权缓存剩余有效时间（非服务端授权到期）。"""
+
         if not cached_at or cached_at <= 0:
             return '未知'
         now = time.time()
@@ -509,7 +524,7 @@ class AuthClient:
             return {'authorized': False, 'message': f'未知错误: {str(e)}', 'success': False, 'from_cache': False}
 
     def _check_online_worker(self, heartbeat_times: int) -> Dict[str, Any]:
-        """单次心跳：用当前已有的 device_info 快照上报（有多少传多少），补全交给后台线程。"""
+
         try:
             self._enqueue_device_info_refresh()
             self._log_debug('开始在线订阅请求...')
@@ -555,7 +570,7 @@ class AuthClient:
         return saved
 
     def check_authorization_progressive(self, force_online: bool=False) -> Dict[str, Any]:
-        """兼容保留：现与 check_authorization 等价（单心跳 + 后台补全 device_info）。"""
+
         return self.check_authorization(force_online=force_online)
 
     def check_authorization(self, force_online: bool=False) -> Dict[str, Any]:
@@ -650,7 +665,7 @@ class AuthClient:
         return self.cache.clear_cache()
 
     def get_plan_info(self) -> Dict[str, Any]:
-        """查询 client_secret 对应产品的套餐信息（加密 API）。"""
+
         import requests
 
         request_data: Dict[str, Any] = {}
@@ -675,7 +690,7 @@ class AuthClient:
             return {'success': False, 'message': f'未知错误: {str(e)}'}
 
     def get_payment_context(self) -> Dict[str, Any]:
-        """查询当前设备绑定的付费上下文（公开 API，含套餐与价格）。"""
+
         import requests
 
         try:
