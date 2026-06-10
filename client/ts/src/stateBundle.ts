@@ -48,7 +48,7 @@ function unlinkStateFileQuietly(file: string): void {
   try {
     if (process.platform === "win32") {
       try {
-        execFileSync("attrib", ["-H", file], { stdio: "ignore" });
+        execFileSync("attrib", ["-H", file], { stdio: "ignore", windowsHide: true });
       } catch {}
     }
     fs.unlinkSync(file);
@@ -172,7 +172,7 @@ export function writeStateDictWithRetry(
     if (process.platform === "win32") {
       const file = bundlePath(serverUrl, baseDir);
       try {
-        execFileSync("attrib", ["+H", file], { stdio: "ignore" });
+        execFileSync("attrib", ["+H", file], { stdio: "ignore", windowsHide: true });
       } catch {}
     }
     return true;
@@ -182,7 +182,7 @@ export function writeStateDictWithRetry(
     try {
       if (fs.existsSync(file)) {
         try {
-          execFileSync("attrib", ["-H", file], { stdio: "ignore" });
+          execFileSync("attrib", ["-H", file], { stdio: "ignore", windowsHide: true });
         } catch {
         }
         fs.unlinkSync(file);
@@ -190,7 +190,7 @@ export function writeStateDictWithRetry(
     } catch {}
     if (writeStateDict(serverUrl, data, baseDir)) {
       try {
-        execFileSync("attrib", ["+H", file], { stdio: "ignore" });
+        execFileSync("attrib", ["+H", file], { stdio: "ignore", windowsHide: true });
       } catch {}
       return true;
     }

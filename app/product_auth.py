@@ -119,6 +119,10 @@ def evaluate_device_authorization(
     if not product.is_active:
         return AuthEvaluation(False, "产品已停用")
 
+    # 管理员手动设置套餐即视为放行，无需付款或审核。
+    if device_manual_plan(device):
+        return AuthEvaluation(True, "设备已授权（手动套餐）", plan)
+
     mode = product.auth_mode
 
     if mode == AUTH_MODE_OPEN:

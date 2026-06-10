@@ -65,6 +65,9 @@ def update_device(
         if len(plan) > MAX_MANUAL_PLAN_LEN:
             raise ValueError(f"套餐档位不能超过 {MAX_MANUAL_PLAN_LEN} 个字符")
         device.manual_plan = plan or None
+        # 手动套餐即视为放行：设置时立即授权，避免等待下次心跳才生效。
+        if device.manual_plan and "is_authorized" not in allowed:
+            device.is_authorized = True
     device.updated_at = datetime.now()
     device.created_at = original_created_at
 

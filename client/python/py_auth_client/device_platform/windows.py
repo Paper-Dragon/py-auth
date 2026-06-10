@@ -105,6 +105,15 @@ def disk_model_for_partition(mountpoint: str, _device: str) -> str:
     try:
         import subprocess
 
+        kw: dict[str, Any] = {
+            "capture_output": True,
+            "text": True,
+            "timeout": 15,
+            "check": False,
+        }
+        cnw = getattr(subprocess, "CREATE_NO_WINDOW", 0)
+        if cnw:
+            kw["creationflags"] = cnw
         r = subprocess.run(
             [
                 "powershell",
@@ -114,10 +123,7 @@ def disk_model_for_partition(mountpoint: str, _device: str) -> str:
                 f"(Get-Partition -DriveLetter '{letter}' -ErrorAction SilentlyContinue | "
                 "Get-Disk -ErrorAction SilentlyContinue).FriendlyName",
             ],
-            capture_output=True,
-            text=True,
-            timeout=15,
-            check=False,
+            **kw,
         )
         return (r.stdout or "").strip()
     except Exception:
